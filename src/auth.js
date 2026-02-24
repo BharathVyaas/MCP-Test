@@ -1,3 +1,6 @@
+const RESOURCE_METADATA_URL =
+  'https://mcptest-ud4i.onrender.com/.well-known/oauth-protected-resource';
+
 export function requireApiKey(req, res, next) {
   const expected = process.env.MCP_API_KEY;
   if (!expected) return next();
@@ -5,6 +8,7 @@ export function requireApiKey(req, res, next) {
   const got = req.header('x-api-key');
   if (got && got === expected) return next();
 
+  res.set('WWW-Authenticate', `Bearer resource_metadata="${RESOURCE_METADATA_URL}"`);
   return res.status(401).json({ error: 'Unauthorized (missing/invalid x-api-key)' });
 }
 
