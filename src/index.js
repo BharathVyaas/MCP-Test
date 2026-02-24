@@ -31,6 +31,24 @@ await connectDb();
 const app = createMcpExpressApp(mcpAppOptions);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+  res.json({
+  "resource": "https://mcptest-ud4i.onrender.com",
+  "authorization_servers": ["https://mcptest-ud4i.onrender.com"],
+  "scopes_supported": ["mcp.access"]
+});
+});
+app.get('/.well-known/openid-configuration', (_req, res) => {
+  res.json({
+    issuer: 'https://mcptest-ud4i.onrender.com',
+    authorization_endpoint:
+      'https://login.microsoftonline.com/463f5aca-3098-440c-a795-9819035e156f/oauth2/v2.0/authorize',
+    token_endpoint:
+      'https://login.microsoftonline.com/463f5aca-3098-440c-a795-9819035e156f/oauth2/v2.0/token',
+    registration_endpoint: 'https://mcptest-ud4i.onrender.com/register',
+    code_challenge_methods_supported: ['S256'],
+  });
+});
 
 app.use('/api/cats', catsRouter);
 

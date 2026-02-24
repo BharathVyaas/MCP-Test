@@ -1,15 +1,23 @@
 #!/usr/bin/env node
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { buildMcpServer } from './server.js';
+
+import process from "node:process";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { buildMcpServer } from "./server.js";
 
 async function main() {
-  const transport = new StdioServerTransport();
-  const server = buildMcpServer();
+  try {
+    console.error("Starting MCP Claude server...");
 
-  await server.connect(transport);
+    const transport = new StdioServerTransport();
+    const server = buildMcpServer();
+
+    await server.connect(transport);
+
+    console.error("MCP Claude server connected");
+  } catch (err) {
+    console.error("Fatal MCP error:", err);
+    process.exit(1);
+  }
 }
 
-main().catch(err => {
-  console.error('MCP Claude server failed:', err);
-  process.exit(1);
-});
+main();
