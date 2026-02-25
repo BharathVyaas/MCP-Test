@@ -19,9 +19,9 @@ const extraAllowedHosts = [
 const mcpAppOptions =
   extraAllowedHosts.length > 0
     ? {
-        host: '0.0.0.0',
-        allowedHosts: [...new Set(['localhost', '127.0.0.1', '[::1]', ...extraAllowedHosts])],
-      }
+      host: '0.0.0.0',
+      allowedHosts: [...new Set(['localhost', '127.0.0.1', '[::1]', ...extraAllowedHosts])],
+    }
     : NODE_ENV === 'production'
       ? { host: '0.0.0.0' }
       : { host: '127.0.0.1' };
@@ -29,7 +29,7 @@ const mcpAppOptions =
 const TENANT_ID = process.env.AZURE_TENANT_ID || '463f5aca-3098-440c-a795-9819035e156f';
 
 const MCP_SERVICE_APP_ID =
-  process.env.MCP_SERVICE_APP_ID || '8d0e185e-adc3-40b2-ab13-7bb7571c13f3';
+  process.env.MCP_SERVICE_APP_ID || 'c600189c-5401-4bd7-9d45-e787222bb030';
 
 const MCP_SCOPE =
   process.env.MCP_SCOPE || `api://${MCP_SERVICE_APP_ID}/mcp.access`;
