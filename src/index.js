@@ -60,7 +60,30 @@ const app = createMcpExpressApp(mcpAppOptions);
 
 // Render/Reverse-proxy friendly URLs
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '1mb' }));
+
+// NOTE: createMcpExpressApp() already mounts a JSON body parser.
+// Some clients (and some manual tests) may send an empty/invalid JSON body to /register.
+// If the JSON parser throws, recover specifically for /register and still respond.
+app.use((err, req, res, next) => {
+  const isBodyParseError = err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError);
+  if (isBodyParseError && req && req.path === '/register') {
+    try {
+      const token_endpoint_auth_method = CHATGPT_CLIENT_SECRET ? 'client_secret_post' : 'none';
+      const out = {
+        client_id: CHATGPT_CLIENT_ID,
+        token_endpoint_auth_method,
+        redirect_uris: CHATGPT_REDIRECT_URIS,
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+      };
+      if (CHATGPT_CLIENT_SECRET) out.client_secret = CHATGPT_CLIENT_SECRET;
+      return res.status(200).json(out);
+    } catch (_e) {
+      // fall through to default error handler
+    }
+  }
+  return next(err);
+});
 
 const getPublicBaseUrl = (req) => {
   const envBase = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -119,13 +142,15 @@ app.get('/.well-known/openid-configuration', (req, res) => {
 
 // Dynamic Client Registration shim (Entra ID does not support RFC7591 DCR)
 // We return a pre-created Entra client id (ChatGPT-MCP-Client) as a stable client.
-app.post('/register', (req, res) => {
+const buildDcrResponse = () => {
   if (!CHATGPT_CLIENT_ID) {
-    res.status(500).json({
-      error: 'server_error',
-      error_description: 'CHATGPT_CLIENT_ID is not configured on the server',
-    });
-    return;
+    return {
+      status: 500,
+      body: {
+        error: 'server_error',
+        error_description: 'CHATGPT_CLIENT_ID is not configured on the server',
+      },
+    };
   }
 
   const token_endpoint_auth_method = CHATGPT_CLIENT_SECRET ? 'client_secret_post' : 'none';
@@ -142,7 +167,28 @@ app.post('/register', (req, res) => {
     out.client_secret = CHATGPT_CLIENT_SECRET;
   }
 
-  res.status(201).json(out);
+  return { status: 200, body: out };
+};
+
+app.post('/register', (_req, res) => {
+  try {
+    const out = buildDcrResponse();
+    res.status(out.status).json(out.body);
+  } catch (err) {
+    console.error('DCR /register error:', err);
+    res.status(500).json({ error: 'server_error', error_description: 'Unhandled error in /register' });
+  }
+});
+
+// Helpful for manual browser navigation (GET will be used in the address bar)
+app.get('/register', (_req, res) => {
+  try {
+    const out = buildDcrResponse();
+    res.status(out.status).json(out.body);
+  } catch (err) {
+    console.error('DCR /register (GET) error:', err);
+    res.status(500).json({ error: 'server_error', error_description: 'Unhandled error in /register' });
+  }
 });
 
 // Require auth for MCP calls (ChatGPT expects 401 + WWW-Authenticate challenge)
