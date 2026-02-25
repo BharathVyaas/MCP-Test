@@ -34,7 +34,8 @@ const MCP_SERVICE_APP_ID =
 const MCP_SCOPE =
   process.env.MCP_SCOPE || `api://${MCP_SERVICE_APP_ID}/mcp.access`;
 
-const CHATGPT_CLIENT_ID = process.env.CHATGPT_CLIENT_ID || '';
+const CHATGPT_CLIENT_ID =
+  process.env.CHATGPT_CLIENT_ID || 'e206c9dc-1fd5-4f1c-97fb-e785ef875590';
 
 const CHATGPT_REDIRECT_URIS = (
   process.env.CHATGPT_REDIRECT_URIS ||
