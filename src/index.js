@@ -37,6 +37,8 @@ const MCP_SCOPE =
 const CHATGPT_CLIENT_ID =
   process.env.CHATGPT_CLIENT_ID || 'e206c9dc-1fd5-4f1c-97fb-e785ef875590';
 
+const CHATGPT_CLIENT_SECRET = (process.env.CHATGPT_CLIENT_SECRET || '').trim();
+
 const CHATGPT_REDIRECT_URIS = (
   process.env.CHATGPT_REDIRECT_URIS ||
   'https://chatgpt.com/connector_platform_oauth_redirect,https://platform.openai.com/apps-manage/oauth'
@@ -74,9 +76,9 @@ const getPublicBaseUrl = (req) => {
 const buildProtectedResourceMetadata = (req) => {
   const base = getPublicBaseUrl(req);
   return {
-    resource: base,
+    resource: `${base}/mcp`,
     authorization_servers: [base],
-    scopes_supported: [MCP_SCOPE],
+    scopes_supported: [MCP_SCOPE, 'offline_access'],
   };
 };
 
@@ -91,8 +93,10 @@ const buildAuthorizationServerMetadata = (req) => {
     code_challenge_methods_supported: ['S256'],
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
-    token_endpoint_auth_methods_supported: ['none'],
-    scopes_supported: [MCP_SCOPE],
+    token_endpoint_auth_methods_supported: CHATGPT_CLIENT_SECRET
+      ? ['client_secret_post', 'none']
+      : ['none'],
+    scopes_supported: [MCP_SCOPE, 'offline_access'],
   };
 };
 
@@ -124,13 +128,21 @@ app.post('/register', (req, res) => {
     return;
   }
 
-  res.status(201).json({
+  const token_endpoint_auth_method = CHATGPT_CLIENT_SECRET ? 'client_secret_post' : 'none';
+
+  const out = {
     client_id: CHATGPT_CLIENT_ID,
-    token_endpoint_auth_method: 'none',
+    token_endpoint_auth_method,
     redirect_uris: CHATGPT_REDIRECT_URIS,
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
-  });
+  };
+
+  if (CHATGPT_CLIENT_SECRET) {
+    out.client_secret = CHATGPT_CLIENT_SECRET;
+  }
+
+  res.status(201).json(out);
 });
 
 // Require auth for MCP calls (ChatGPT expects 401 + WWW-Authenticate challenge)
