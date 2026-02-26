@@ -1,5 +1,7 @@
+const envBase = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+
 const RESOURCE_METADATA_URL =
-  'https://mcptest-ud4i.onrender.com/.well-known/oauth-protected-resource';
+  `${envBase}/.well-known/oauth-protected-resource`;
 
 export function requireApiKey(req, res, next) {
   const expected = process.env.MCP_API_KEY;
