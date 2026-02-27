@@ -99,7 +99,7 @@ const getPublicBaseUrl = (req) => {
 const buildProtectedResourceMetadata = (req) => {
   const base = getPublicBaseUrl(req);
   return {
-    resource: `${base}/mcp`,
+    resource: base,
     authorization_servers: [base],
     scopes_supported: [MCP_SCOPE, 'offline_access'],
   };
@@ -109,8 +109,8 @@ const buildAuthorizationServerMetadata = (req) => {
   const base = getPublicBaseUrl(req);
   return {
     issuer: base,
-    authorization_endpoint: AUTHORIZATION_ENDPOINT,
-    token_endpoint: TOKEN_ENDPOINT,
+    authorization_endpoint: `${base}/oauth/authorize`,
+    token_endpoint: `${base}/oauth/token`,
     registration_endpoint: `${base}/register`,
     jwks_uri: JWKS_URI,
     code_challenge_methods_supported: ['S256'],
@@ -127,6 +127,11 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // Protected Resource Metadata (MCP requirement)
 app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  res.json(buildProtectedResourceMetadata(req));
+});
+
+// Some MCP clients may probe a service-scoped metadata path
+app.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
   res.json(buildProtectedResourceMetadata(req));
 });
 
@@ -185,7 +190,59 @@ app.get('/register', (_req, res) => {
   try {
     const out = buildDcrResponse();
     res.status(out.status).json(out.body);
+ 
+// OAuth proxy endpoints (Entra v2 rejects the `resource` parameter; MCP clients may include it)
+app.get('/oauth/authorize', (req, res) => {
+  try {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(req.query || {})) {
+      if (k === 'resource') continue;
+      if (Array.isArray(v)) v.forEach((i) => params.append(k, String(i)));
+      else if (v !== undefined && v !== null) params.set(k, String(v));
+    }
+
+    if (!params.has('scope')) {
+      params.set('scope', `${MCP_SCOPE} offline_access`);
+    }
+
+    const url = new URL(AUTHORIZATION_ENDPOINT);
+    url.search = params.toString();
+    res.redirect(url.toString());
   } catch (err) {
+    console.error('OAuth proxy /oauth/authorize error:', err);
+    res.status(500).send('OAuth proxy error');
+  }
+});
+
+app.post('/oauth/token', express.urlencoded({ extended: false }), async (req, res) => {
+  try {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(req.body || {})) {
+      if (k === 'resource') continue;
+      if (v !== undefined && v !== null) params.set(k, String(v));
+    }
+
+    const upstream = await fetch(TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    const bodyText = await upstream.text();
+    const ct = upstream.headers.get('content-type');
+    if (ct) res.set('Content-Type', ct);
+
+    res.status(upstream.status).send(bodyText);
+  } catch (err) {
+    console.error('OAuth proxy /oauth/token error:', err);
+    res.status(500).json({
+      error: 'server_error',
+      error_description: 'OAuth proxy token exchange failed',
+    });
+  }
+});
+
+ } catch (err) {
     console.error('DCR /register (GET) error:', err);
     res.status(500).json({ error: 'server_error', error_description: 'Unhandled error in /register' });
   }
