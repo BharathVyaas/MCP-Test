@@ -42,9 +42,11 @@ export function requireAllowedOrigin(req, res, next) {
     .filter(Boolean);
 
   if (allow.length === 0) return next();
+  if (allow.includes('*')) return next();
 
   const origin = req.header('origin');
-  if (!origin) return res.status(403).json({ error: 'Forbidden (missing Origin)' });
+  // Non-browser callers may not send Origin.
+  if (!origin) return next();
 
   if (!allow.includes(origin)) {
     return res.status(403).json({ error: `Forbidden (Origin not allowed): ${origin}` });

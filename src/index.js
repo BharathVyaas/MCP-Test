@@ -8,9 +8,22 @@ import { mountMcp } from './mcp/mountMcp.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+const IS_PUBLIC_DEPLOYMENT =
+  NODE_ENV === 'production' || Boolean(PUBLIC_BASE_URL) || process.env.BIND_PUBLIC === '1';
+
+const publicBaseHostname = (() => {
+  if (!PUBLIC_BASE_URL) return '';
+  try {
+    return new URL(PUBLIC_BASE_URL).hostname;
+  } catch (_err) {
+    return '';
+  }
+})();
 
 const extraAllowedHosts = [
   process.env.RENDER_EXTERNAL_HOSTNAME,
+  publicBaseHostname,
   ...(process.env.ALLOWED_HOSTS || '').split(','),
 ]
   .map((s) => s?.trim())
@@ -22,9 +35,54 @@ const mcpAppOptions =
       host: '0.0.0.0',
       allowedHosts: [...new Set(['localhost', '127.0.0.1', '[::1]', ...extraAllowedHosts])],
     }
-    : NODE_ENV === 'production'
+    : IS_PUBLIC_DEPLOYMENT
       ? { host: '0.0.0.0' }
       : { host: '127.0.0.1' };
+
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '*')
+  .split(',')
+  .map((s) => s?.trim())
+  .filter(Boolean);
+
+const CORS_ALLOW_CREDENTIALS = (process.env.CORS_ALLOW_CREDENTIALS || '0') === '1';
+
+const DEFAULT_CORS_HEADERS = [
+  'Authorization',
+  'Content-Type',
+  'Accept',
+  'Origin',
+  'MCP-Session-Id',
+  'mcp-session-id',
+  'x-api-key',
+].join(',');
+
+const resolveCorsOrigin = (originHeader) => {
+  if (CORS_ALLOWED_ORIGINS.includes('*')) {
+    if (CORS_ALLOW_CREDENTIALS && originHeader) return originHeader;
+    return '*';
+  }
+
+  if (!originHeader) return null;
+  return CORS_ALLOWED_ORIGINS.includes(originHeader) ? originHeader : null;
+};
+
+const applyCorsHeaders = (req, res) => {
+  const originHeader = req.header('origin');
+  const corsOrigin = resolveCorsOrigin(originHeader);
+  if (corsOrigin) {
+    res.set('Access-Control-Allow-Origin', corsOrigin);
+    if (corsOrigin !== '*') res.vary('Origin');
+  }
+
+  const requestHeaders = req.header('access-control-request-headers');
+  res.set('Access-Control-Allow-Headers', requestHeaders || DEFAULT_CORS_HEADERS);
+  res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.set('Access-Control-Expose-Headers', 'WWW-Authenticate,MCP-Session-Id,mcp-session-id');
+
+  if (CORS_ALLOW_CREDENTIALS && corsOrigin && corsOrigin !== '*') {
+    res.set('Access-Control-Allow-Credentials', 'true');
+  }
+};
 
 const TENANT_ID = process.env.AZURE_TENANT_ID || '463f5aca-3098-440c-a795-9819035e156f';
 
@@ -61,6 +119,13 @@ const app = createMcpExpressApp(mcpAppOptions);
 // Render/Reverse-proxy friendly URLs
 app.set('trust proxy', 1);
 
+// Keep MCP/OAuth endpoints callable from ChatGPT browser + backend probes.
+app.use((req, res, next) => {
+  applyCorsHeaders(req, res);
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  return next();
+});
+
 // NOTE: createMcpExpressApp() already mounts a JSON body parser.
 // Some clients (and some manual tests) may send an empty/invalid JSON body to /register.
 // If the JSON parser throws, recover specifically for /register and still respond.
@@ -68,6 +133,7 @@ app.use((err, req, res, next) => {
   const isBodyParseError = err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError);
   if (isBodyParseError && req && req.path === '/register') {
     try {
+      applyCorsHeaders(req, res);
       const token_endpoint_auth_method = CHATGPT_CLIENT_SECRET ? 'client_secret_post' : 'none';
       const out = {
         client_id: CHATGPT_CLIENT_ID,
@@ -86,8 +152,7 @@ app.use((err, req, res, next) => {
 });
 
 const getPublicBaseUrl = (req) => {
-  const envBase = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (envBase) return envBase;
+  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL;
   const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https')
     .toString()
     .split(',')[0]

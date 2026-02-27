@@ -17,8 +17,13 @@ npm start
 
 - `MONGODB_URI` (required)
 - `PORT` (default 3000)
+- `PUBLIC_BASE_URL` (recommended for hosted MCP) — used in OAuth metadata
 - `MCP_API_KEY` (optional) — if set, require `x-api-key` on REST + MCP
-- `ALLOWED_ORIGINS` (optional) — comma list. Used to validate `Origin` on `/mcp`
+- `MCP_REQUIRE_AUTH` (`1` in production by default)
+- `CORS_ALLOWED_ORIGINS` (default `*`) — comma list, set to `*` to allow all
+- `CORS_ALLOW_CREDENTIALS` (`0` by default)
+- `ALLOWED_ORIGINS` (optional) — extra `/mcp` origin allowlist for non-Bearer callers
+- `ALLOWED_HOSTS` (optional) — host header allowlist for DNS rebinding protection
 
 ## 3) REST endpoints
 
