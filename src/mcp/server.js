@@ -182,6 +182,45 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
   );
 
   server.registerTool(
+    'dataverse_list_tables',
+    {
+      title: 'List Dataverse Tables',
+      description: 'List Dataverse table metadata (entity definitions).',
+      inputSchema: {
+        top: z.number().int().min(1).max(500).optional().default(100),
+        customOnly: z.boolean().optional().default(false),
+        logicalNameContains: z.string().optional().describe('Filter by logical name substring'),
+      },
+    },
+    async ({ top = 100, customOnly = false, logicalNameContains }) =>
+      runWithDataverseToken(getInboundAccessToken, async (token) => {
+        const filters = [];
+        if (customOnly) filters.push('IsCustomEntity eq true');
+        if (logicalNameContains) {
+          const escaped = String(logicalNameContains).replace(/'/g, "''");
+          filters.push(`contains(LogicalName,'${escaped}')`);
+        }
+
+        return callDataverse(token, {
+          method: 'GET',
+          path: 'EntityDefinitions',
+          query: {
+            $top: top,
+            $select: [
+              'LogicalName',
+              'SchemaName',
+              'EntitySetName',
+              'PrimaryIdAttribute',
+              'PrimaryNameAttribute',
+              'IsCustomEntity',
+            ].join(','),
+            ...(filters.length > 0 ? { $filter: filters.join(' and ') } : {}),
+          },
+        });
+      })
+  );
+
+  server.registerTool(
     'dataverse_list_rows',
     {
       title: 'List Dataverse Rows',
