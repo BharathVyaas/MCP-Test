@@ -48,6 +48,7 @@ Tools exposed:
 
 - `dataverse_whoami`
 - `dataverse_list_tables`
+- `dataverse_create_table`
 - `dataverse_list_rows`
 - `dataverse_get_row`
 - `dataverse_create_row`

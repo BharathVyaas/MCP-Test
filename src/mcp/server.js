@@ -74,6 +74,30 @@ const normalizeRowId = (id) => {
   return cleaned;
 };
 
+const normalizeLogicalName = (name) => {
+  const cleaned = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+/, '')
+    .replace(/_+$/, '');
+  if (!cleaned) throw new Error('logicalName is required');
+  if (!cleaned.includes('_')) {
+    throw new Error('logicalName must include a publisher prefix, e.g. cr0f1_project');
+  }
+  return cleaned;
+};
+
+const toSchemaName = (logicalName) => {
+  const parts = logicalName.split('_').filter(Boolean);
+  if (parts.length === 0) return logicalName;
+  const [prefix, ...rest] = parts;
+  const tail = rest.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+  return tail ? `${prefix}_${tail}` : prefix;
+};
+
 async function exchangeTokenOnBehalfOf(inboundAccessToken) {
   ensureDataverseConfig();
   if (!inboundAccessToken) {
@@ -272,6 +296,110 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
           ...(count ? { $count: 'true' } : {}),
         };
         return callDataverse(token, { method: 'GET', path: entitySet, query });
+      })
+  );
+
+  server.registerTool(
+    'dataverse_create_table',
+    {
+      title: 'Create Dataverse Table',
+      description: 'Create a custom Dataverse table (EntityDefinition).',
+      inputSchema: {
+        logicalName: z.string().describe('Custom logical name with prefix, e.g. cr0f1_project'),
+        displayName: z.string().describe('Display name, e.g. Project'),
+        displayCollectionName: z.string().optional().describe('Plural display name, e.g. Projects'),
+        primaryNameLogicalName: z.string().optional().describe('Primary name attribute logical name'),
+        primaryNameDisplayName: z.string().optional().describe('Primary name label, default Name'),
+        ownershipType: z.enum(['UserOwned', 'OrganizationOwned']).optional().default('UserOwned'),
+        description: z.string().optional(),
+        primaryNameMaxLength: z.number().int().min(10).max(4000).optional().default(200),
+        publishAfterCreate: z.boolean().optional().default(true),
+      },
+    },
+    async ({
+      logicalName,
+      displayName,
+      displayCollectionName,
+      primaryNameLogicalName,
+      primaryNameDisplayName = 'Name',
+      ownershipType = 'UserOwned',
+      description = '',
+      primaryNameMaxLength = 200,
+      publishAfterCreate = true,
+    }) =>
+      runWithDataverseToken(getInboundAccessToken, async (token) => {
+        const normalizedLogicalName = normalizeLogicalName(logicalName);
+        const schemaName = toSchemaName(normalizedLogicalName);
+        const primaryAttributeLogicalName =
+          String(primaryNameLogicalName || `${normalizedLogicalName}name`)
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_]/g, '_');
+
+        const label = String(displayName || '').trim();
+        if (!label) throw new Error('displayName is required');
+        const pluralLabel = String(displayCollectionName || `${label}s`).trim();
+
+        const body = {
+          '@odata.type': 'Microsoft.Dynamics.CRM.EntityMetadata',
+          LogicalName: normalizedLogicalName,
+          SchemaName: schemaName,
+          DisplayName: {
+            LocalizedLabels: [{ Label: label, LanguageCode: 1033 }],
+          },
+          DisplayCollectionName: {
+            LocalizedLabels: [{ Label: pluralLabel, LanguageCode: 1033 }],
+          },
+          Description: {
+            LocalizedLabels: [{ Label: description || `${label} table`, LanguageCode: 1033 }],
+          },
+          OwnershipType: ownershipType,
+          IsActivity: false,
+          PrimaryNameAttribute: primaryAttributeLogicalName,
+          Attributes: [
+            {
+              '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
+              LogicalName: primaryAttributeLogicalName,
+              SchemaName: toSchemaName(primaryAttributeLogicalName),
+              DisplayName: {
+                LocalizedLabels: [{ Label: primaryNameDisplayName, LanguageCode: 1033 }],
+              },
+              RequiredLevel: {
+                Value: 'ApplicationRequired',
+              },
+              MaxLength: primaryNameMaxLength,
+            },
+          ],
+        };
+
+        const created = await callDataverse(token, {
+          method: 'POST',
+          path: 'EntityDefinitions',
+          body,
+        });
+
+        if (publishAfterCreate) {
+          try {
+            await callDataverse(token, {
+              method: 'POST',
+              path: 'PublishAllXml',
+              body: {},
+            });
+          } catch (publishErr) {
+            return {
+              ...created,
+              publish: {
+                ok: false,
+                error: publishErr?.message || 'PublishAllXml failed',
+              },
+            };
+          }
+        }
+
+        return {
+          ...created,
+          publish: publishAfterCreate ? { ok: true } : { ok: false, skipped: true },
+        };
       })
   );
 
