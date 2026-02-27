@@ -110,7 +110,10 @@ async function exchangeTokenOnBehalfOf(inboundAccessToken) {
 async function callDataverse(accessToken, { method = 'GET', path, query, headers, body }) {
   ensureDataverseConfig();
 
-  const url = new URL(String(path || '').replace(/^\/+/, ''), `${DATAVERSE_API_BASE}/`);
+  const normalizedPath = String(path || '').replace(/^\/+/, '');
+  const isMetadataPath = /^(EntityDefinitions|RelationshipDefinitions|GlobalOptionSetDefinitions)\b/i
+    .test(normalizedPath);
+  const url = new URL(normalizedPath, `${DATAVERSE_API_BASE}/`);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value === undefined || value === null || value === '') continue;
@@ -123,6 +126,7 @@ async function callDataverse(accessToken, { method = 'GET', path, query, headers
     'Accept': 'application/json',
     'OData-Version': '4.0',
     'OData-MaxVersion': '4.0',
+    ...(isMetadataPath ? { 'ConsistencyLevel': 'eventual' } : {}),
     ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     ...(headers || {}),
   };
@@ -196,12 +200,8 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       runWithDataverseToken(getInboundAccessToken, async (token) => {
         const filters = [];
         if (customOnly) filters.push('IsCustomEntity eq true');
-        if (logicalNameContains) {
-          const escaped = String(logicalNameContains).replace(/'/g, "''");
-          filters.push(`contains(LogicalName,'${escaped}')`);
-        }
 
-        return callDataverse(token, {
+        const result = await callDataverse(token, {
           method: 'GET',
           path: 'EntityDefinitions',
           query: {
@@ -217,6 +217,26 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
             ...(filters.length > 0 ? { $filter: filters.join(' and ') } : {}),
           },
         });
+
+        if (!logicalNameContains || !result?.data?.value || !Array.isArray(result.data.value)) {
+          return result;
+        }
+
+        const needle = String(logicalNameContains).toLowerCase();
+        const filtered = result.data.value.filter((row) => {
+          const logical = String(row?.LogicalName || '').toLowerCase();
+          const schema = String(row?.SchemaName || '').toLowerCase();
+          const entitySet = String(row?.EntitySetName || '').toLowerCase();
+          return logical.includes(needle) || schema.includes(needle) || entitySet.includes(needle);
+        });
+
+        return {
+          ...result,
+          data: {
+            ...result.data,
+            value: filtered,
+          },
+        };
       })
   );
 
