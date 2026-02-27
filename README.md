@@ -1,9 +1,7 @@
-# MCP Cats Server (Node + Express + MongoDB)
+# MCP Dataverse Server (Node + Express)
 
-A tiny, readable example that exposes the same "Cats" CRUD two ways:
-
-1) REST API (for normal apps)
-2) MCP tools (for AI clients like ChatGPT / Claude / Copilot)
+This server exposes Dataverse operations as MCP tools for ChatGPT/Copilot style clients.
+Legacy `/api/cats` REST routes are still present in this repo, but MCP tools are now Dataverse-first.
 
 ## 1) Setup
 
@@ -15,13 +13,20 @@ npm start
 
 ## 2) Env
 
-- `MONGODB_URI` (required)
 - `PORT` (default 3000)
 - `PUBLIC_BASE_URL` (recommended for hosted MCP) — used in OAuth metadata
+- `AZURE_TENANT_ID` (required)
+- `MCP_SERVICE_APP_ID` (required) — Entra app id for your MCP service API
+- `MCP_SERVICE_APP_CLIENT_SECRET` (required) — secret value for MCP service app
+- `DATAVERSE_URL` (required) — e.g. `https://org.crm.dynamics.com`
+- `DATAVERSE_SCOPE` (optional) — default `${DATAVERSE_URL}/user_impersonation`
+- `DATAVERSE_API_VERSION` (optional, default `v9.2`)
 - `MCP_API_KEY` (optional) — if set, require `x-api-key` on REST + MCP
 - `MCP_REQUIRE_AUTH` (`1` in production by default)
 - `MCP_STATELESS` (`1` on Vercel by default) — avoids in-memory session coupling
+- `ENABLE_CATS_API` (`0` default) — only needed if you still want legacy `/api/cats`
 - `REQUIRE_DB_ON_STARTUP` (`0` default) — if `1`, process exits when DB is unavailable
+- `OAUTH_DEBUG` (`0` default) — logs token proxy request/response snippets
 - `CORS_ALLOWED_ORIGINS` (default `*`) — comma list, set to `*` to allow all
 - `CORS_ALLOW_CREDENTIALS` (`0` by default)
 - `ALLOWED_ORIGINS` (optional) — extra `/mcp` origin allowlist for non-Bearer callers
@@ -35,19 +40,21 @@ npm start
 - `PUT    /api/cats/:id`
 - `DELETE /api/cats/:id`
 
-## 4) MCP endpoint
+## 4) MCP Endpoint
 
 - `POST /mcp` (Streamable HTTP, JSON response mode)
 
 Tools exposed:
 
-- `cats_list`
-- `cats_get`
-- `cats_add`
-- `cats_update`
-- `cats_delete`
+- `dataverse_whoami`
+- `dataverse_list_rows`
+- `dataverse_get_row`
+- `dataverse_create_row`
+- `dataverse_update_row`
+- `dataverse_delete_row`
 
 ## Notes
 
-- Uses MCP Streamable HTTP in **JSON response mode** (`enableJsonResponse: true`), so we don't need SSE/GET.
-- Uses `createMcpExpressApp()` for sane defaults (DNS rebinding protection, JSON parsing). See MCP docs/spec.
+- `/mcp` expects `Authorization: Bearer <token>` from ChatGPT OAuth.
+- Dataverse calls are executed using Entra OAuth On-Behalf-Of (OBO) with the incoming bearer token.
+- Uses MCP Streamable HTTP in JSON response mode (`enableJsonResponse: true`).

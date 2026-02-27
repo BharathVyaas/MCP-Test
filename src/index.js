@@ -108,6 +108,7 @@ const CHATGPT_REDIRECT_URIS = (
 const REQUIRE_MCP_AUTH =
   (process.env.MCP_REQUIRE_AUTH || (NODE_ENV === 'production' ? '1' : '0')) === '1';
 const REQUIRE_DB_ON_STARTUP = (process.env.REQUIRE_DB_ON_STARTUP || '0') === '1';
+const ENABLE_CATS_API = (process.env.ENABLE_CATS_API || '0') === '1';
 const OAUTH_DEBUG = (process.env.OAUTH_DEBUG || '0') === '1';
 
 const DEFAULT_OAUTH_TOKEN_ORIGIN = (() => {
@@ -132,12 +133,14 @@ const AUTHORIZATION_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/o
 const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
 const JWKS_URI = `https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`;
 
-if (REQUIRE_DB_ON_STARTUP) {
-  await connectDb();
-} else {
-  connectDb().catch((err) => {
-    console.error('MongoDB connect failed (startup continues):', err);
-  });
+if (ENABLE_CATS_API) {
+  if (REQUIRE_DB_ON_STARTUP) {
+    await connectDb();
+  } else {
+    connectDb().catch((err) => {
+      console.error('MongoDB connect failed (startup continues):', err);
+    });
+  }
 }
 
 const app = createMcpExpressApp(mcpAppOptions);
@@ -220,6 +223,7 @@ app.get('/health', (_req, res) => {
     db: getDbReadyStateLabel(),
     mode: {
       requireMcpAuth: REQUIRE_MCP_AUTH,
+      enableCatsApi: ENABLE_CATS_API,
       requireDbOnStartup: REQUIRE_DB_ON_STARTUP,
       statelessMcp: (process.env.MCP_STATELESS || (process.env.VERCEL ? '1' : '0')) === '1',
     },
@@ -393,7 +397,9 @@ app.use('/mcp', (req, res, next) => {
   res.status(401).json({ error: 'unauthorized' });
 });
 
-app.use('/api/cats', catsRouter);
+if (ENABLE_CATS_API) {
+  app.use('/api/cats', catsRouter);
+}
 
 mountMcp(app);
 
@@ -403,7 +409,9 @@ app.listen(PORT, (err) => {
     process.exit(1);
   }
   console.log(`HTTP listening on port ${PORT}`);
-  console.log(`REST  -> /api/cats`);
+  if (ENABLE_CATS_API) {
+    console.log(`REST  -> /api/cats`);
+  }
   console.log(`MCP   -> /mcp`);
   if (extraAllowedHosts.length > 0) {
     console.log(`MCP allowed hosts: ${mcpAppOptions.allowedHosts.join(', ')}`);
