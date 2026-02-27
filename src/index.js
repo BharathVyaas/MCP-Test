@@ -108,6 +108,25 @@ const CHATGPT_REDIRECT_URIS = (
 const REQUIRE_MCP_AUTH =
   (process.env.MCP_REQUIRE_AUTH || (NODE_ENV === 'production' ? '1' : '0')) === '1';
 const REQUIRE_DB_ON_STARTUP = (process.env.REQUIRE_DB_ON_STARTUP || '0') === '1';
+const OAUTH_DEBUG = (process.env.OAUTH_DEBUG || '0') === '1';
+
+const DEFAULT_OAUTH_TOKEN_ORIGIN = (() => {
+  const envOrigin = (process.env.OAUTH_TOKEN_ORIGIN || '').trim();
+  if (envOrigin) return envOrigin;
+
+  for (const redirectUri of CHATGPT_REDIRECT_URIS) {
+    try {
+      const u = new URL(redirectUri);
+      if (u.origin === 'https://chatgpt.com' || u.origin === 'https://platform.openai.com') {
+        return u.origin;
+      }
+    } catch (_err) {
+      // Ignore malformed redirect URIs.
+    }
+  }
+
+  return 'https://chatgpt.com';
+})();
 
 const AUTHORIZATION_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize`;
 const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
@@ -265,16 +284,37 @@ app.post('/oauth/token', express.urlencoded({ extended: false }), async (req, re
       params.set(k, String(v));
     });
 
+    const requestOrigin = (req.headers.origin || '').toString().split(',')[0].trim();
+    const forwardOrigin = requestOrigin || DEFAULT_OAUTH_TOKEN_ORIGIN;
+    const forwardHeaders = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+      'Origin': forwardOrigin,
+    };
+
+    if (OAUTH_DEBUG) {
+      console.log('oauth/token request', {
+        grant_type: body.grant_type || null,
+        has_client_id: Boolean(body.client_id),
+        has_code: Boolean(body.code),
+        has_code_verifier: Boolean(body.code_verifier),
+        has_refresh_token: Boolean(body.refresh_token),
+        inbound_origin: requestOrigin || null,
+        forward_origin: forwardOrigin,
+      });
+    }
+
     const r = await fetch(TOKEN_ENDPOINT, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-      },
+      headers: forwardHeaders,
       body: params.toString(),
     });
 
     const text = await r.text();
+    if (OAUTH_DEBUG || !r.ok) {
+      const snippet = text?.slice(0, 500) || '';
+      console.log('oauth/token response', { status: r.status, body: snippet });
+    }
     res.status(r.status);
     // Forward content-type if present, else default to json
     const ct = r.headers.get('content-type') || 'application/json; charset=utf-8';
