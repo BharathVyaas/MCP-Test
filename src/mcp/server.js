@@ -355,6 +355,8 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
           },
           OwnershipType: ownershipType,
           IsActivity: false,
+          HasActivities: false,
+          HasNotes: true,
           PrimaryNameAttribute: primaryAttributeLogicalName,
           Attributes: [
             {
