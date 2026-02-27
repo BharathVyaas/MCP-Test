@@ -99,7 +99,7 @@ const getPublicBaseUrl = (req) => {
 const buildProtectedResourceMetadata = (req) => {
   const base = getPublicBaseUrl(req);
   return {
-    resource: base,
+    resource: `${base}`,
     authorization_servers: [base],
     scopes_supported: [MCP_SCOPE, 'offline_access'],
   };
@@ -130,9 +130,14 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
   res.json(buildProtectedResourceMetadata(req));
 });
 
-// Some MCP clients may probe a service-scoped metadata path
+// Some clients may probe a resource-specific PRM URL. Provide a compatible alias.
 app.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
-  res.json(buildProtectedResourceMetadata(req));
+  const base = getPublicBaseUrl(req);
+  res.json({
+    resource: `${base}/mcp`,
+    authorization_servers: [base],
+    scopes_supported: [MCP_SCOPE, 'offline_access'],
+  });
 });
 
 // Authorization Server Metadata (RFC8414-style)
@@ -143,6 +148,60 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
 // OIDC discovery (some clients prefer this endpoint)
 app.get('/.well-known/openid-configuration', (req, res) => {
   res.json(buildAuthorizationServerMetadata(req));
+});
+
+// OAuth proxy endpoints (Entra v2 rejects the 'resource' parameter; ChatGPT includes it)
+// We strip 'resource' and forward to Entra.
+app.get('/oauth/authorize', (req, res) => {
+  try {
+    const forwarded = new URL(AUTHORIZATION_ENDPOINT);
+    // Copy all query params except 'resource'
+    for (const [k, v] of Object.entries(req.query || {})) {
+      if (k === 'resource') continue;
+      if (Array.isArray(v)) {
+        v.forEach((vv) => forwarded.searchParams.append(k, String(vv)));
+      } else if (v !== undefined && v !== null) {
+        forwarded.searchParams.set(k, String(v));
+      }
+    }
+    return res.redirect(forwarded.toString());
+  } catch (err) {
+    console.error('OAuth /oauth/authorize error:', err);
+    return res.status(500).send('OAuth authorize proxy error');
+  }
+});
+
+// Token exchange uses x-www-form-urlencoded
+app.post('/oauth/token', express.urlencoded({ extended: false }), async (req, res) => {
+  try {
+    const body = { ...(req.body || {}) };
+    delete body.resource;
+
+    const params = new URLSearchParams();
+    Object.entries(body).forEach(([k, v]) => {
+      if (v === undefined || v === null) return;
+      params.set(k, String(v));
+    });
+
+    const r = await fetch(TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: params.toString(),
+    });
+
+    const text = await r.text();
+    res.status(r.status);
+    // Forward content-type if present, else default to json
+    const ct = r.headers.get('content-type') || 'application/json; charset=utf-8';
+    res.set('Content-Type', ct);
+    return res.send(text);
+  } catch (err) {
+    console.error('OAuth /oauth/token error:', err);
+    return res.status(500).json({ error: 'server_error', error_description: 'Token proxy error' });
+  }
 });
 
 // Dynamic Client Registration shim (Entra ID does not support RFC7591 DCR)
@@ -190,59 +249,7 @@ app.get('/register', (_req, res) => {
   try {
     const out = buildDcrResponse();
     res.status(out.status).json(out.body);
- 
-// OAuth proxy endpoints (Entra v2 rejects the `resource` parameter; MCP clients may include it)
-app.get('/oauth/authorize', (req, res) => {
-  try {
-    const params = new URLSearchParams();
-    for (const [k, v] of Object.entries(req.query || {})) {
-      if (k === 'resource') continue;
-      if (Array.isArray(v)) v.forEach((i) => params.append(k, String(i)));
-      else if (v !== undefined && v !== null) params.set(k, String(v));
-    }
-
-    if (!params.has('scope')) {
-      params.set('scope', `${MCP_SCOPE} offline_access`);
-    }
-
-    const url = new URL(AUTHORIZATION_ENDPOINT);
-    url.search = params.toString();
-    res.redirect(url.toString());
   } catch (err) {
-    console.error('OAuth proxy /oauth/authorize error:', err);
-    res.status(500).send('OAuth proxy error');
-  }
-});
-
-app.post('/oauth/token', express.urlencoded({ extended: false }), async (req, res) => {
-  try {
-    const params = new URLSearchParams();
-    for (const [k, v] of Object.entries(req.body || {})) {
-      if (k === 'resource') continue;
-      if (v !== undefined && v !== null) params.set(k, String(v));
-    }
-
-    const upstream = await fetch(TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-
-    const bodyText = await upstream.text();
-    const ct = upstream.headers.get('content-type');
-    if (ct) res.set('Content-Type', ct);
-
-    res.status(upstream.status).send(bodyText);
-  } catch (err) {
-    console.error('OAuth proxy /oauth/token error:', err);
-    res.status(500).json({
-      error: 'server_error',
-      error_description: 'OAuth proxy token exchange failed',
-    });
-  }
-});
-
- } catch (err) {
     console.error('DCR /register (GET) error:', err);
     res.status(500).json({ error: 'server_error', error_description: 'Unhandled error in /register' });
   }
