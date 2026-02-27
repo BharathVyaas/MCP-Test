@@ -198,14 +198,10 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
     },
     async ({ top = 100, customOnly = false, logicalNameContains }) =>
       runWithDataverseToken(getInboundAccessToken, async (token) => {
-        const filters = [];
-        if (customOnly) filters.push('IsCustomEntity eq true');
-
         const result = await callDataverse(token, {
           method: 'GET',
           path: 'EntityDefinitions',
           query: {
-            $top: top,
             $select: [
               'LogicalName',
               'SchemaName',
@@ -214,27 +210,36 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
               'PrimaryNameAttribute',
               'IsCustomEntity',
             ].join(','),
-            ...(filters.length > 0 ? { $filter: filters.join(' and ') } : {}),
           },
         });
 
-        if (!logicalNameContains || !result?.data?.value || !Array.isArray(result.data.value)) {
+        if (!result?.data?.value || !Array.isArray(result.data.value)) {
           return result;
         }
 
-        const needle = String(logicalNameContains).toLowerCase();
-        const filtered = result.data.value.filter((row) => {
-          const logical = String(row?.LogicalName || '').toLowerCase();
-          const schema = String(row?.SchemaName || '').toLowerCase();
-          const entitySet = String(row?.EntitySetName || '').toLowerCase();
-          return logical.includes(needle) || schema.includes(needle) || entitySet.includes(needle);
-        });
+        let filtered = result.data.value;
+
+        if (customOnly) {
+          filtered = filtered.filter((row) => row?.IsCustomEntity === true);
+        }
+
+        if (logicalNameContains) {
+          const needle = String(logicalNameContains).toLowerCase();
+          filtered = filtered.filter((row) => {
+            const logical = String(row?.LogicalName || '').toLowerCase();
+            const schema = String(row?.SchemaName || '').toLowerCase();
+            const entitySet = String(row?.EntitySetName || '').toLowerCase();
+            return logical.includes(needle) || schema.includes(needle) || entitySet.includes(needle);
+          });
+        }
+
+        const limited = Number.isFinite(top) && top > 0 ? filtered.slice(0, top) : filtered;
 
         return {
           ...result,
           data: {
             ...result.data,
-            value: filtered,
+            value: limited,
           },
         };
       })
