@@ -6,10 +6,27 @@ import { requireApiKey, requireAllowedOrigin } from '../auth.js';
 import { buildMcpServer } from './server.js';
 
 export function mountMcp(app) {
+  const useStatelessMode =
+    (process.env.MCP_STATELESS || (process.env.VERCEL ? '1' : '0')) === '1';
   const transports = new Map();
 
   app.post('/mcp', requireApiKey, requireAllowedOrigin, async (req, res) => {
     try {
+      if (useStatelessMode) {
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+          enableJsonResponse: true,
+        });
+        const server = buildMcpServer();
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        res.on('close', () => {
+          transport.close();
+          server.close();
+        });
+        return;
+      }
+
       const sessionId = req.headers['mcp-session-id'];
       let transport = sessionId ? transports.get(String(sessionId)) : undefined;
 
@@ -52,6 +69,10 @@ export function mountMcp(app) {
   });
 
   app.get('/mcp', requireApiKey, requireAllowedOrigin, (_req, res) => {
+    res.status(405).set('Allow', 'POST').send('Method Not Allowed');
+  });
+
+  app.delete('/mcp', requireApiKey, requireAllowedOrigin, (_req, res) => {
     res.status(405).set('Allow', 'POST').send('Method Not Allowed');
   });
 }

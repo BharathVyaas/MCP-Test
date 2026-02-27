@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 
-import { connectDb } from './db.js';
+import { connectDb, getDbReadyStateLabel } from './db.js';
 import { catsRouter } from './routes/cats.js';
 import { mountMcp } from './mcp/mountMcp.js';
 
@@ -107,12 +107,19 @@ const CHATGPT_REDIRECT_URIS = (
 
 const REQUIRE_MCP_AUTH =
   (process.env.MCP_REQUIRE_AUTH || (NODE_ENV === 'production' ? '1' : '0')) === '1';
+const REQUIRE_DB_ON_STARTUP = (process.env.REQUIRE_DB_ON_STARTUP || '0') === '1';
 
 const AUTHORIZATION_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize`;
 const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
 const JWKS_URI = `https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`;
 
-await connectDb();
+if (REQUIRE_DB_ON_STARTUP) {
+  await connectDb();
+} else {
+  connectDb().catch((err) => {
+    console.error('MongoDB connect failed (startup continues):', err);
+  });
+}
 
 const app = createMcpExpressApp(mcpAppOptions);
 
@@ -188,7 +195,17 @@ const buildAuthorizationServerMetadata = (req) => {
   };
 };
 
-app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('/health', (_req, res) => {
+  res.json({
+    ok: true,
+    db: getDbReadyStateLabel(),
+    mode: {
+      requireMcpAuth: REQUIRE_MCP_AUTH,
+      requireDbOnStartup: REQUIRE_DB_ON_STARTUP,
+      statelessMcp: (process.env.MCP_STATELESS || (process.env.VERCEL ? '1' : '0')) === '1',
+    },
+  });
+});
 
 // Protected Resource Metadata (MCP requirement)
 app.get('/.well-known/oauth-protected-resource', (req, res) => {

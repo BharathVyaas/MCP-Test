@@ -10,3 +10,21 @@ export async function connectDb() {
 
   console.log('MongoDB connected');
 }
+
+export function getDbReadyState() {
+  return mongoose.connection.readyState;
+}
+
+export function getDbReadyStateLabel() {
+  // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
+  switch (mongoose.connection.readyState) {
+    case 1:
+      return 'connected';
+    case 2:
+      return 'connecting';
+    case 3:
+      return 'disconnecting';
+    default:
+      return 'disconnected';
+  }
+}

@@ -20,6 +20,8 @@ npm start
 - `PUBLIC_BASE_URL` (recommended for hosted MCP) — used in OAuth metadata
 - `MCP_API_KEY` (optional) — if set, require `x-api-key` on REST + MCP
 - `MCP_REQUIRE_AUTH` (`1` in production by default)
+- `MCP_STATELESS` (`1` on Vercel by default) — avoids in-memory session coupling
+- `REQUIRE_DB_ON_STARTUP` (`0` default) — if `1`, process exits when DB is unavailable
 - `CORS_ALLOWED_ORIGINS` (default `*`) — comma list, set to `*` to allow all
 - `CORS_ALLOW_CREDENTIALS` (`0` by default)
 - `ALLOWED_ORIGINS` (optional) — extra `/mcp` origin allowlist for non-Bearer callers
