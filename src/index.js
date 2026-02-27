@@ -99,7 +99,9 @@ const getPublicBaseUrl = (req) => {
 const buildProtectedResourceMetadata = (req) => {
   const base = getPublicBaseUrl(req);
   return {
-    resource: `${base}/mcp`,
+    // Canonical identifier for this resource server (not the transport path).
+    // ChatGPT will echo this as the `resource` parameter during OAuth.
+    resource: `${base}`,
     authorization_servers: [base],
     scopes_supported: [MCP_SCOPE, 'offline_access'],
   };
@@ -109,8 +111,9 @@ const buildAuthorizationServerMetadata = (req) => {
   const base = getPublicBaseUrl(req);
   return {
     issuer: base,
-    authorization_endpoint: AUTHORIZATION_ENDPOINT,
-    token_endpoint: TOKEN_ENDPOINT,
+    // OAuth proxy endpoints (strip RFC8707 `resource` before forwarding to Entra v2)
+    authorization_endpoint: `${base}/oauth/authorize`,
+    token_endpoint: `${base}/oauth/token`,
     registration_endpoint: `${base}/register`,
     jwks_uri: JWKS_URI,
     code_challenge_methods_supported: ['S256'],
@@ -130,6 +133,12 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
   res.json(buildProtectedResourceMetadata(req));
 });
 
+// Some clients derive a path-aware metadata URL per RFC9728 when the MCP URL includes a path.
+// Serve both so onboarding doesn't break if the client computes the other form.
+app.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
+  res.json(buildProtectedResourceMetadata(req));
+});
+
 // Authorization Server Metadata (RFC8414-style)
 app.get('/.well-known/oauth-authorization-server', (req, res) => {
   res.json(buildAuthorizationServerMetadata(req));
@@ -138,6 +147,45 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
 // OIDC discovery (some clients prefer this endpoint)
 app.get('/.well-known/openid-configuration', (req, res) => {
   res.json(buildAuthorizationServerMetadata(req));
+});
+
+// OAuth proxy for Microsoft Entra ID
+// ChatGPT includes the RFC8707 `resource` parameter, but Entra v2 endpoints reject it.
+// We strip `resource` and forward the rest to Entra.
+app.get('/oauth/authorize', (req, res) => {
+  const url = new URL(AUTHORIZATION_ENDPOINT);
+  for (const [k, v] of Object.entries(req.query || {})) {
+    if (k === 'resource') continue;
+    if (Array.isArray(v)) v.forEach((vv) => url.searchParams.append(k, String(vv)));
+    else if (v !== undefined && v !== null) url.searchParams.append(k, String(v));
+  }
+  res.redirect(url.toString());
+});
+
+app.post('/oauth/token', express.urlencoded({ extended: false }), async (req, res) => {
+  try {
+    const params = new URLSearchParams();
+    const body = req.body || {};
+    for (const [k, v] of Object.entries(body)) {
+      if (k === 'resource') continue;
+      if (Array.isArray(v)) v.forEach((vv) => params.append(k, String(vv)));
+      else if (v !== undefined && v !== null) params.append(k, String(v));
+    }
+
+    const r = await fetch(TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    const text = await r.text();
+    const ct = r.headers.get('content-type');
+    if (ct) res.set('content-type', ct);
+    res.status(r.status).send(text);
+  } catch (err) {
+    console.error('OAuth proxy /oauth/token error:', err);
+    res.status(500).json({ error: 'server_error', error_description: 'OAuth proxy token exchange failed' });
+  }
 });
 
 // Dynamic Client Registration shim (Entra ID does not support RFC7591 DCR)
