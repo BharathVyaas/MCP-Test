@@ -385,7 +385,8 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           ],
         });
 
-        // 1) Create minimal entity WITHOUT attributes
+        // 1) Create Entity and Primary Attribute in one step
+        const primaryAttrSchemaName = `${schemaName}Name`;
         const entityBody = {
           '@odata.type': 'Microsoft.Dynamics.CRM.EntityMetadata',
           LogicalName: normalizedLogicalName,
@@ -397,6 +398,17 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           IsActivity: false,
           HasActivities: false,
           HasNotes: true,
+          PrimaryNameAttribute: primaryAttributeLogicalName,
+          PrimaryAttribute: {
+            '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
+            LogicalName: primaryAttributeLogicalName,
+            SchemaName: primaryAttrSchemaName,
+            DisplayName: makeLabel(primaryNameDisplayName),
+            Description: makeLabel(`Primary Name attribute for ${label}`),
+            RequiredLevel: { Value: 'ApplicationRequired' },
+            MaxLength: primaryNameMaxLength,
+            FormatName: { Value: 'Text' },
+          }
         };
 
         if (DATAVERSE_DEBUG) {
@@ -407,63 +419,9 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           method: 'POST',
           path: 'EntityDefinitions',
           body: entityBody,
-          headers: { 'Prefer': 'return=representation' },
         });
 
-        const entityCreated = createEntityRes?.status === 201 || !!createEntityRes?.entityId;
-
-        // 2) Create the primary attribute separately
-        // Derive SchemaName directly from entity schemaName to avoid double-Name suffix
-        const primaryAttrSchemaName = `${schemaName}Name`;
-        const attrBody = {
-          '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
-          LogicalName: primaryAttributeLogicalName,
-          SchemaName: primaryAttrSchemaName,
-          DisplayName: makeLabel(primaryNameDisplayName),
-          Description: makeLabel(`Primary Name attribute for ${label}`),
-          RequiredLevel: {
-            Value: 'ApplicationRequired',
-          },
-          MaxLength: primaryNameMaxLength,
-          FormatName: { Value: 'Text' },
-        };
-
-        if (DATAVERSE_DEBUG) {
-          console.log('[dataverse_create_table] step 2 attribute body:', JSON.stringify(attrBody));
-        }
-
-        try {
-          await callDataverse(token, {
-            method: 'POST',
-            path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')/Attributes`,
-            body: attrBody,
-          });
-        } catch (err) {
-          if (entityCreated) {
-            await callDataverse(token, { method: 'DELETE', path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')` }).catch(() => { });
-          }
-          throw new Error(`Failed to create primary attribute: ${err.message}`);
-        }
-
-        // 3) Bind the attribute to the entity as PrimaryNameAttribute
-        const bindBody = { PrimaryNameAttribute: primaryAttributeLogicalName };
-        if (DATAVERSE_DEBUG) {
-          console.log('[dataverse_create_table] step 3 bind body:', JSON.stringify(bindBody));
-        }
-        try {
-          await callDataverse(token, {
-            method: 'PATCH',
-            path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')`,
-            body: bindBody,
-          });
-        } catch (err) {
-          if (entityCreated) {
-            await callDataverse(token, { method: 'DELETE', path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')` }).catch(() => { });
-          }
-          throw new Error(`Failed to bind primary attribute: ${err.message}`);
-        }
-
-        // 4) Publish
+        // 2) Publish
         if (publishAfterCreate) {
           try {
             await callDataverse(token, {
