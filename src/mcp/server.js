@@ -403,6 +403,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
                 Value: 'ApplicationRequired',
               },
               MaxLength: primaryNameMaxLength,
+              FormatName: { Value: 'Text' },
             },
           ],
         };
