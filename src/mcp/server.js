@@ -399,6 +399,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           RequiredLevel: { Value: 'None' },
           MaxLength: primaryNameMaxLength,
           FormatName: { Value: 'Text' },
+          IsPrimaryName: true,
         };
 
         const primaryIdLogicalName = `${normalizedLogicalName}id`;
