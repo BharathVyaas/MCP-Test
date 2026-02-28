@@ -401,6 +401,8 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           FormatName: { Value: 'Text' },
         };
 
+        const primaryIdLogicalName = `${normalizedLogicalName}id`;
+
         const entityBody = {
           '@odata.type': 'Microsoft.Dynamics.CRM.EntityMetadata',
           LogicalName: normalizedLogicalName,
@@ -417,7 +419,13 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           // attribute inside Attributes and set PrimaryNameAttribute to the logical
           // name string so the CreateEntity contract is satisfied.
           Attributes: [primaryAttribute],
+          // Provide both PrimaryNameAttribute and PrimaryAttribute/PrimaryIdAttribute
+          // as string values. Some Dataverse deployments expect these specific
+          // top-level string properties (rather than a nested PrimaryAttribute
+          // object) for CreateEntity requests.
           PrimaryNameAttribute: primaryAttributeLogicalName,
+          PrimaryAttribute: primaryAttributeLogicalName,
+          PrimaryIdAttribute: primaryIdLogicalName,
         };
 
         if (DATAVERSE_DEBUG) {
