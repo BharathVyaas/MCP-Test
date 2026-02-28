@@ -246,7 +246,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
     'dataverse_list_tables',
     {
       title: 'List Dataverse Tables',
-      description: 'List Dataverse table metadata (entity definitions).',
+      description: 'List Dataverse table metadata (entity definitions). Use this tool to find the exact EntitySetName if you only know the display name.',
       inputSchema: {
         top: z.number().int().min(1).max(500).optional().default(100),
         customOnly: z.boolean().optional().default(false),
@@ -306,7 +306,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
     'dataverse_list_rows',
     {
       title: 'List Dataverse Rows',
-      description: 'List rows from a Dataverse table (entity set name).',
+      description: 'List rows from a Dataverse table (entity set name). IMPORTANT: If you do not know the exact fully-prefixed EntitySetName (e.g., cr123_employees), you MUST use dataverse_list_tables first to find it before calling this tool!',
       inputSchema: {
         table: z.string().describe('Dataverse entity set name, e.g. accounts or cr123_temp_employees. MUST include prefix if custom.'),
         select: z.array(z.string()).optional().describe('Columns to return. CRITICAL: Custom columns MUST include the publisher prefix in OData queries (e.g. cr123_temp_email, NOT temp_email).'),
