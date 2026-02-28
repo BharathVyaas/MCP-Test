@@ -424,11 +424,23 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           console.log('[dataverse_create_table] step 1 entity body:', JSON.stringify(entityBody));
         }
 
-        const createEntityRes = await callDataverse(token, {
-          method: 'POST',
-          path: 'EntityDefinitions',
-          body: entityBody,
-        });
+        let createEntityRes;
+        try {
+          createEntityRes = await callDataverse(token, {
+            method: 'POST',
+            path: 'EntityDefinitions',
+            body: entityBody,
+          });
+        } catch (err) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Dataverse CreateEntity failed: ${err?.message || String(err)}` }],
+            structuredContent: {
+              error: err?.message || String(err),
+              requestBody: entityBody,
+            },
+          };
+        }
 
         let parsedItem = [];
         if (typeof item === 'string' && item.trim()) {
