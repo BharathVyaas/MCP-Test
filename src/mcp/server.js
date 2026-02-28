@@ -306,7 +306,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
     'dataverse_list_rows',
     {
       title: 'List Dataverse Rows',
-      description: 'List rows from a Dataverse table (entity set name). IMPORTANT: If you do not know the exact fully-prefixed EntitySetName (e.g., cr123_employees), you MUST use dataverse_list_tables first to find it before calling this tool!',
+      description: 'List rows from a Dataverse table (entity set name). IMPORTANT: If you do not know the exact fully-prefixed EntitySetName (e.g., cr123_employees or [other prefix]_employees), you MUST use dataverse_list_tables first to find it before calling this tool!',
       inputSchema: {
         table: z.string().describe('Dataverse entity set name, e.g. accounts or cr123_temp_employees. MUST include prefix if custom.'),
         select: z.array(z.string()).optional().describe('Columns to return. CRITICAL: Custom columns MUST include the publisher prefix in OData queries (e.g. cr123_temp_email, NOT temp_email).'),
