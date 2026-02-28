@@ -401,7 +401,6 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
               '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
               LogicalName: primaryAttributeLogicalName,
               SchemaName: toSchemaName(primaryAttributeLogicalName),
-              PrimaryNameAttribute: true,
               DisplayName: makeLabel(primaryNameDisplayName),
               Description: makeLabel(`Primary Name attribute for ${label}`),
               RequiredLevel: {
