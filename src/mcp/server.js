@@ -538,5 +538,210 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
       })
   );
 
+  server.registerTool(
+    'dataverse_fetch_xml',
+    {
+      title: 'Execute FetchXML',
+      description: 'Execute a Dataverse FetchXML query.',
+      inputSchema: {
+        table: z.string().describe('Entity set name (e.g. accounts)'),
+        fetchXml: z.string().describe('Raw FetchXML string'),
+      },
+    },
+    async ({ table, fetchXml }) =>
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
+        const entitySet = normalizeTable(table);
+        return callDataverse(token, {
+          method: 'GET',
+          path: entitySet,
+          query: { fetchXml },
+        });
+      })
+  );
+
+  server.registerTool(
+    'dataverse_execute_action',
+    {
+      title: 'Execute Action/Custom API',
+      description: 'Execute a Dataverse unbound Action or Custom API.',
+      inputSchema: {
+        actionName: z.string().describe('Name of the action (e.g. cr7b_MyCustomApi)'),
+        payload: z.record(z.string(), z.unknown()).optional().describe('JSON payload/parameters for the action'),
+      },
+    },
+    async ({ actionName, payload }) =>
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
+        const action = String(actionName || '').trim().replace(/^\/+/, '');
+        if (!action) throw new Error('actionName is required');
+        return callDataverse(token, {
+          method: 'POST',
+          path: action,
+          body: payload || {},
+        });
+      })
+  );
+
+  server.registerTool(
+    'dataverse_list_relationships',
+    {
+      title: 'List Table Relationships',
+      description: 'Fetch Relationship metadata (1:N, N:1, N:N) for a table.',
+      inputSchema: {
+        logicalName: z.string().describe('Entity logical name (e.g. account)'),
+      },
+    },
+    async ({ logicalName }) =>
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
+        const name = normalizeLogicalName(logicalName);
+        return callDataverse(token, {
+          method: 'GET',
+          path: `EntityDefinitions(LogicalName='${name}')`,
+          query: {
+            $select: 'LogicalName',
+            $expand: 'ManyToManyRelationships,OneToManyRelationships,ManyToOneRelationships',
+          },
+        });
+      })
+  );
+
+  server.registerTool(
+    'dataverse_global_search',
+    {
+      title: 'Global Dataverse Search',
+      description: 'Uses the Dataverse Search API to find records across indexable tables.',
+      inputSchema: {
+        search: z.string().describe('Search term'),
+        entities: z.array(z.string()).optional().describe('Limit to specific logical names'),
+        top: z.number().int().optional().default(10),
+      },
+    },
+    async ({ search, entities = [], top = 10 }) =>
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
+        if (!search) throw new Error('search string is required');
+        const body = {
+          search,
+          top,
+          ...(entities.length > 0 ? { entities: entities.map((e) => ({ name: e })) } : {}),
+        };
+        return callDataverse(token, {
+          method: 'POST',
+          path: 'search',
+          body,
+        });
+      })
+  );
+
+  server.registerTool(
+    'dataverse_create_mda',
+    {
+      title: 'Create Model-Driven App',
+      description: 'Create a new App Module (Model-Driven App) and attach entity components.',
+      inputSchema: {
+        name: z.string().describe('Display name for the app'),
+        uniqueName: z.string().describe('Unique internal name (e.g. prefix_myapp)'),
+        description: z.string().optional(),
+        entityLogicalNames: z.array(z.string()).describe('List of tables (entities) to include in the app'),
+      },
+    },
+    async ({ name, uniqueName, description = '', entityLogicalNames = [] }) =>
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
+        if (!name) throw new Error('name is required');
+
+        // 1. Create the AppModule
+        const appPayload = {
+          name: uniqueName,
+          displayname: name,
+          description: description || `App created by MCP`,
+          clienttype: 4, // Web
+        };
+
+        let appCreateResponse;
+        try {
+          appCreateResponse = await callDataverse(token, {
+            method: 'POST',
+            path: 'appmodules',
+            body: appPayload,
+            headers: { 'Prefer': 'return=representation' },
+          });
+        } catch (err) {
+          throw new Error(`Failed to create AppModule: ${err.message}`);
+        }
+
+        const appId = appCreateResponse?.data?.appmoduleid;
+        if (!appId || entityLogicalNames.length === 0) {
+          return { app: appCreateResponse.data, componentsAdded: false };
+        }
+
+        // 2. Resolve ObjectTypeCodes (Entity metadata ID) for each entity
+        // AddAppComponents requires the object id. For tables, it's the EntityMetadataId
+        const componentsToAdd = [];
+
+        for (const logicalName of entityLogicalNames) {
+          try {
+            const meta = await callDataverse(token, {
+              method: 'GET',
+              path: `EntityDefinitions(LogicalName='${logicalName}')`,
+              query: { $select: 'MetadataId' }
+            });
+            if (meta?.data?.MetadataId) {
+              componentsToAdd.push({
+                componentType: 1, // Entity
+                componentId: meta.data.MetadataId
+              });
+            }
+          } catch (e) {
+            console.warn(`Could not resolve entity ${logicalName} for MDA components.`);
+          }
+        }
+
+        // 3. Add components to the app
+        let addComponentsOk = false;
+        if (componentsToAdd.length > 0) {
+          try {
+            const bodyElements = componentsToAdd.map(c => `{"@odata.type":"Microsoft.Dynamics.CRM.appcomponent", "componenttype": ${c.componentType}, "objectid": "${c.componentId}"}`);
+            const rawBody = `{"Components": [${bodyElements.join(',')}]}`;
+
+            const reqHeaders = {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/json',
+              'OData-Version': '4.0',
+              'OData-MaxVersion': '4.0',
+              'Content-Type': 'application/json',
+            };
+
+            // Raw fetch specifically to pass nested JSON strings easily for AddAppComponents
+            const res = await fetch(`${DATAVERSE_API_BASE}/appmodules(${appId})/Microsoft.Dynamics.CRM.AddAppComponents`, {
+              method: 'POST',
+              headers: reqHeaders,
+              body: rawBody
+            });
+
+            if (res.ok) {
+              addComponentsOk = true;
+            }
+          } catch (err) {
+            console.warn(`Failed to add components to app: ${err.message}`);
+          }
+        }
+
+        // 4. Publish App
+        try {
+          await callDataverse(token, {
+            method: 'POST',
+            path: 'PublishAllXml',
+            body: {},
+          });
+        } catch (e) {
+          // Ignore publish failure
+        }
+
+        return {
+          app: appCreateResponse.data,
+          componentsAdded: addComponentsOk,
+          published: true
+        };
+      })
+  );
+
   return server;
 }

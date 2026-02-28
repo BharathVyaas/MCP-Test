@@ -91,6 +91,7 @@ Always `405 Method Not Allowed`.
 Tools are explicitly declared in `src/mcp/server.js` via `server.registerTool(...)`.
 Only these tools are exposed to GPT:
 
+### Basic Operations
 1. `dataverse_whoami`
 - Dataverse call: `GET WhoAmI()`
 - Purpose: validate token and identity context
@@ -98,15 +99,10 @@ Only these tools are exposed to GPT:
 2. `dataverse_list_tables`
 - Dataverse call: `GET EntityDefinitions?$select=...`
 - Applies `customOnly`, `logicalNameContains`, `top` filtering in server code
-- Purpose: metadata discovery
 
 3. `dataverse_create_table`
 - Dataverse call: `POST EntityDefinitions`
 - Optional publish step: `POST PublishAllXml`
-- Includes required creation flags:
-  - `IsActivity: false`
-  - `HasActivities: false`
-  - `HasNotes: true`
 
 4. `dataverse_list_rows`
 - Dataverse call: `GET /<entitySet>?$select&$filter&$orderby&$expand&$top&$count`
@@ -116,15 +112,33 @@ Only these tools are exposed to GPT:
 
 6. `dataverse_create_row`
 - Dataverse call: `POST /<entitySet>`
-- Optional header: `Prefer: return=representation`
 
 7. `dataverse_update_row`
 - Dataverse call: `PATCH /<entitySet>(<guid>)`
-- Uses `If-Match` (defaults to `*`)
 
 8. `dataverse_delete_row`
 - Dataverse call: `DELETE /<entitySet>(<guid>)`
-- Uses `If-Match` (defaults to `*`)
+
+### Advanced Operations
+9. `dataverse_fetch_xml`
+- Dataverse call: `GET /<entitySet>?fetchXml=...`
+- Purpose: Execute complex aggregations and multi-table joins.
+
+10. `dataverse_execute_action`
+- Dataverse call: `POST /<actionName>`
+- Purpose: Trigger unbound Dataverse Actions or Custom APIs.
+
+11. `dataverse_list_relationships`
+- Dataverse call: `GET /EntityDefinitions(LogicalName='...')?$expand=ManyToManyRelationships...`
+- Purpose: Help the LLM discover how parent and child tables are linked.
+
+12. `dataverse_global_search`
+- Dataverse call: `POST /search`
+- Purpose: Execute global text search across indexed tables.
+
+13. `dataverse_create_mda` (Experimental)
+- Dataverse call: Multiple calls to `appmodules` and `AddAppComponents`
+- Purpose: Generates a new Model-Driven App surface containing the requested tables.
 
 ## 6) Tool Response Contract
 
