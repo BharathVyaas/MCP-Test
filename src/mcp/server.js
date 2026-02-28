@@ -363,11 +363,12 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
       runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const normalizedLogicalName = normalizeLogicalName(logicalName);
         const schemaName = toSchemaName(normalizedLogicalName);
-        const primaryAttributeLogicalName =
-          String(primaryNameLogicalName || `${normalizedLogicalName}name`)
-            .trim()
-            .toLowerCase()
-            .replace(/[^a-z0-9_]/g, '_');
+
+        // Option A: Enforce strictly matched primary name attribute logical name
+        const forcedPrimaryName = `${normalizedLogicalName}name`;
+        const primaryAttributeLogicalName = primaryNameLogicalName && primaryNameLogicalName.startsWith(normalizedLogicalName)
+          ? String(primaryNameLogicalName).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')
+          : forcedPrimaryName;
 
         const label = String(displayName || '').trim();
         if (!label) throw new Error('displayName is required');
@@ -384,7 +385,8 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           ],
         });
 
-        const body = {
+        // 1) Create minimal entity WITHOUT attributes
+        const entityBody = {
           '@odata.type': 'Microsoft.Dynamics.CRM.EntityMetadata',
           LogicalName: normalizedLogicalName,
           SchemaName: schemaName,
@@ -395,29 +397,54 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           IsActivity: false,
           HasActivities: false,
           HasNotes: true,
-          PrimaryNameAttribute: primaryAttributeLogicalName,
-          Attributes: [
-            {
-              '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
-              LogicalName: primaryAttributeLogicalName,
-              SchemaName: toSchemaName(primaryAttributeLogicalName),
-              DisplayName: makeLabel(primaryNameDisplayName),
-              Description: makeLabel(`Primary Name attribute for ${label}`),
-              RequiredLevel: {
-                Value: 'ApplicationRequired',
-              },
-              MaxLength: primaryNameMaxLength,
-              FormatName: { Value: 'Text' },
-            },
-          ],
         };
 
-        const created = await callDataverse(token, {
+        const createEntityRes = await callDataverse(token, {
           method: 'POST',
           path: 'EntityDefinitions',
-          body,
+          body: entityBody,
         });
 
+        // 2) Create the primary attribute separately
+        const attrBody = {
+          '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
+          LogicalName: primaryAttributeLogicalName,
+          SchemaName: toSchemaName(primaryAttributeLogicalName),
+          DisplayName: makeLabel(primaryNameDisplayName),
+          Description: makeLabel(`Primary Name attribute for ${label}`),
+          RequiredLevel: {
+            Value: 'ApplicationRequired',
+          },
+          MaxLength: primaryNameMaxLength,
+          FormatName: { Value: 'Text' },
+        };
+
+        try {
+          await callDataverse(token, {
+            method: 'POST',
+            path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')/Attributes`,
+            body: attrBody,
+          });
+        } catch (err) {
+          // Best effort cleanup if attribute fails
+          await callDataverse(token, { method: 'DELETE', path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')` }).catch(() => { });
+          throw new Error(`Failed to create primary attribute: ${err.message}`);
+        }
+
+        // 3) Bind the attribute to the entity as PrimaryNameAttribute
+        try {
+          await callDataverse(token, {
+            method: 'PATCH',
+            path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')`,
+            body: { PrimaryNameAttribute: primaryAttributeLogicalName }
+          });
+        } catch (err) {
+          // Best effort cleanup if bind fails
+          await callDataverse(token, { method: 'DELETE', path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')` }).catch(() => { });
+          throw new Error(`Failed to bind primary attribute: ${err.message}`);
+        }
+
+        // 4) Publish
         if (publishAfterCreate) {
           try {
             await callDataverse(token, {
@@ -427,17 +454,14 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
             });
           } catch (publishErr) {
             return {
-              ...created,
-              publish: {
-                ok: false,
-                error: publishErr?.message || 'PublishAllXml failed',
-              },
+              ...createEntityRes,
+              publish: { ok: false, error: publishErr.message }
             };
           }
         }
 
         return {
-          ...created,
+          ...createEntityRes,
           publish: publishAfterCreate ? { ok: true } : { ok: false, skipped: true },
         };
       })
