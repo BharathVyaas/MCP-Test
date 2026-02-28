@@ -347,6 +347,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
         description: z.string().optional(),
         primaryNameMaxLength: z.number().int().min(10).max(4000).optional().default(200),
         publishAfterCreate: z.boolean().optional().default(true),
+        item: z.array(z.record(z.any())).optional().describe('JSON array of custom columns e.g. [{"name":"First Name","type":"String"}]')
       },
     },
     async ({
@@ -359,6 +360,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
       description = '',
       primaryNameMaxLength = 200,
       publishAfterCreate = true,
+      item = [],
     }) =>
       runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const normalizedLogicalName = normalizeLogicalName(logicalName);
@@ -385,8 +387,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           ],
         });
 
-        // 1) Create Entity and Primary Attribute in one step
-        const primaryAttrSchemaName = `${schemaName}Name`;
+        // 1) Create Entity (omitting primary name metadata to let Dataverse auto-generate it!)
         const entityBody = {
           '@odata.type': 'Microsoft.Dynamics.CRM.EntityMetadata',
           LogicalName: normalizedLogicalName,
@@ -397,18 +398,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           OwnershipType: ownershipType,
           IsActivity: false,
           HasActivities: false,
-          HasNotes: true,
-          PrimaryNameAttribute: primaryAttributeLogicalName,
-          PrimaryAttribute: {
-            '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
-            LogicalName: primaryAttributeLogicalName,
-            SchemaName: primaryAttrSchemaName,
-            DisplayName: makeLabel(primaryNameDisplayName),
-            Description: makeLabel(`Primary Name attribute for ${label}`),
-            RequiredLevel: { Value: 'ApplicationRequired' },
-            MaxLength: primaryNameMaxLength,
-            FormatName: { Value: 'Text' },
-          }
+          HasNotes: true
         };
 
         if (DATAVERSE_DEBUG) {
@@ -421,7 +411,73 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           body: entityBody,
         });
 
-        // 2) Publish
+        // 2) Sequentially create any custom fields requested in the 'item' array
+        if (Array.isArray(item) && item.length > 0) {
+          for (const col of item) {
+            const colName = String(col.name || '').trim();
+            const colType = String(col.type || '').trim().toLowerCase();
+            if (!colName || !colType) continue;
+
+            const colLogicalName = `${normalizedLogicalName.split('_')[0]}_${colName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
+            let attrBody = null;
+
+            if (colType === 'choice') {
+              attrBody = {
+                '@odata.type': 'Microsoft.Dynamics.CRM.PicklistAttributeMetadata',
+                LogicalName: colLogicalName,
+                SchemaName: toSchemaName(colLogicalName),
+                DisplayName: makeLabel(colName),
+                Description: makeLabel(`${colName} choice column`),
+                OptionSet: {
+                  Options: (col.choices || []).map((c, i) => ({
+                    Value: c.value || (100000000 + i),
+                    Label: makeLabel(c.label || String(c.value))
+                  }))
+                }
+              };
+            } else if (colType === 'lookup') {
+              const relatedTable = col.relatedtable || 'contact';
+              attrBody = {
+                '@odata.type': 'Microsoft.Dynamics.CRM.LookupAttributeMetadata',
+                LogicalName: colLogicalName,
+                SchemaName: toSchemaName(colLogicalName),
+                DisplayName: makeLabel(colName),
+                Description: makeLabel(`${colName} lookup to ${relatedTable}`),
+                RequiredLevel: { Value: col.required ? 'ApplicationRequired' : 'None' },
+                Targets: [relatedTable],
+                FormatName: { Value: 'Lookup' }
+              };
+            } else if (colType === 'string') {
+              attrBody = {
+                '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
+                LogicalName: colLogicalName,
+                SchemaName: toSchemaName(colLogicalName),
+                DisplayName: makeLabel(colName),
+                Description: makeLabel(`${colName} text column`),
+                RequiredLevel: { Value: col.required ? 'ApplicationRequired' : 'None' },
+                MaxLength: col.maxLength || 100,
+                FormatName: { Value: 'Text' }
+              };
+            }
+
+            if (attrBody) {
+              if (DATAVERSE_DEBUG) {
+                console.log(`[dataverse_create_table] step 2 creating column ${colName}:`, JSON.stringify(attrBody));
+              }
+              try {
+                await callDataverse(token, {
+                  method: 'POST',
+                  path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')/Attributes`,
+                  body: attrBody,
+                });
+              } catch (err) {
+                console.warn(`[dataverse_create_table] Warning: Failed to create custom column ${colName}: ${err.message}`);
+              }
+            }
+          }
+        }
+
+        // 3) Publish
         if (publishAfterCreate) {
           try {
             await callDataverse(token, {
