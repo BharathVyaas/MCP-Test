@@ -51,23 +51,22 @@ Open your Gemini CLI settings file (e.g., `~/.gemini/settings.json`) and configu
 {
   "mcpServers": {
     "dataverse-server": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/inspector",
-        "https://mcptest-gamma.vercel.app/mcp/sse"
-      ],
-      "env": {
-        "AUTHORIZATION": "Bearer <YOUR_GEMINI_API_KEY>"
-      }
+      "url": "https://mcptest-gamma.vercel.app/mcp/sse",
+      "type": "sse",
+      "headers": {
+        "Authorization": "Bearer <YOUR_GEMINI_API_KEY>"
+      },
+      "trust": true
     }
   }
 }
 ```
 
 ### Explaining the JSON setup:
-*   **`"https://.../mcp/sse"`**: This points the MCP runner directly at the new initialization endpoint we built.
-*   **`"AUTHORIZATION": "Bearer <YOUR_GEMINI_API_KEY>"`**: This injects your secure key as an HTTP header into every request the CLI makes to your server, ensuring the server lets the traffic through. Do not forget the word `Bearer ` with a space before the key.
+*   **`"type": "sse"`**: Tells Gemini CLI we are using the remote HTTP streaming protocol, not a local CLI sub-process.
+*   **`"url": "https://.../mcp/sse"`**: This points exactly to the new Server-Sent Events endpoint we built for Vercel.
+*   **`"headers"`**: Injects your secure key directly into the HTTP request headers.
+*   **`"trust": true`**: Signals to Gemini CLI that this server is safe to execute tools from automatically.
 
 ## 5. What the Gemini CLI Can Do
 
