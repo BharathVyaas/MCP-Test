@@ -396,18 +396,20 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           HasActivities: false,
           HasNotes: true,
           PrimaryNameAttribute: primaryAttributeLogicalName,
-          PrimaryAttribute: {
-            '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
-            LogicalName: primaryAttributeLogicalName,
-            SchemaName: toSchemaName(primaryAttributeLogicalName),
-            DisplayName: makeLabel(primaryNameDisplayName),
-            Description: makeLabel(`Primary Name attribute for ${label}`),
-            RequiredLevel: {
-              Value: 'ApplicationRequired',
+          Attributes: [
+            {
+              '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
+              LogicalName: primaryAttributeLogicalName,
+              SchemaName: toSchemaName(primaryAttributeLogicalName),
+              DisplayName: makeLabel(primaryNameDisplayName),
+              Description: makeLabel(`Primary Name attribute for ${label}`),
+              RequiredLevel: {
+                Value: 'ApplicationRequired',
+              },
+              MaxLength: primaryNameMaxLength,
+              FormatName: { Value: 'Text' },
             },
-            MaxLength: primaryNameMaxLength,
-            FormatName: { Value: 'Text' },
-          },
+          ],
         };
 
         const created = await callDataverse(token, {
