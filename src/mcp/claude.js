@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import dotenv from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+dotenv.config({ path: resolve(__dirname, '../../.env') });
+
 import process from "node:process";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { buildMcpServer } from "./server.js";
