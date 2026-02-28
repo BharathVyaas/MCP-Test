@@ -21,6 +21,13 @@ export function mountMcp(app) {
   const sessionTokens = new Map();
 
   app.post('/mcp', requireApiKey, requireAllowedOrigin, async (req, res) => {
+    // Compat: The MCP SDK v1.5 StreamableHTTPServerTransport is strictly expecting 
+    // application/json or text/event-stream in the Accept header. 
+    // ChatGPT and some generic REST clients send '*/*' which causes a 406 Not Acceptable.
+    if (!req.headers.accept || req.headers.accept.includes('*/*')) {
+      req.headers.accept = 'application/json';
+    }
+
     try {
       if (useStatelessMode) {
         const inboundToken = getBearerToken(req);
