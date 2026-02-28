@@ -306,7 +306,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
     'dataverse_list_rows',
     {
       title: 'List Dataverse Rows',
-      description: 'List rows from a Dataverse table (entity set name). IMPORTANT: If you do not know the exact fully-prefixed EntitySetName (e.g., cr123_employees or [other prefix]_employees), you MUST use dataverse_list_tables first to find it before calling this tool!',
+      description: 'List rows from a Dataverse table (entity set name). IMPORTANT: If you do not know the exact fully-prefixed EntitySetName (e.g., all other prefix that are available in our environment one after another with _employees), you MUST use dataverse_list_tables first to find it before calling this tool!',
       inputSchema: {
         table: z.string().describe('Dataverse entity set name, e.g. accounts or cr123_temp_employees. MUST include prefix if custom.'),
         select: z.array(z.string()).optional().describe('Columns to return. CRITICAL: Custom columns MUST include the publisher prefix in OData queries (e.g. cr123_temp_email, NOT temp_email).'),
@@ -336,7 +336,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
     'dataverse_create_table',
     {
       title: 'Create Dataverse Table',
-      description: 'Create a custom Dataverse table (EntityDefinition).',
+      description: 'Create a custom Dataverse table (EntityDefinition). Note: newer Dataverse tenants may require an explicit PrimaryAttribute. If you receive the error "Required field \'PrimaryAttribute\' is missing for CreateEntity", provide a `primaryNameLogicalName` or adjust the tool implementation to include the generated primary attribute. This helper will automatically build a string primary attribute using your logical name if omitted.',
       inputSchema: {
         logicalName: z.string().describe('Custom logical name with prefix, e.g. cr0f1_project'),
         displayName: z.string().describe('Display name, e.g. Project'),
@@ -366,11 +366,6 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
         const normalizedLogicalName = normalizeLogicalName(logicalName);
         const schemaName = toSchemaName(normalizedLogicalName);
 
-        // Option A: Enforce strictly matched primary name attribute logical name
-        const forcedPrimaryName = `${normalizedLogicalName}name`;
-        const primaryAttributeLogicalName = primaryNameLogicalName && primaryNameLogicalName.startsWith(normalizedLogicalName)
-          ? String(primaryNameLogicalName).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')
-          : forcedPrimaryName;
 
         const label = String(displayName || '').trim();
         if (!label) throw new Error('displayName is required');
@@ -387,7 +382,25 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           ],
         });
 
-        // 1) Create Entity (omitting primary name metadata to let Dataverse auto-generate it!)
+        // 1) Create Entity. Dataverse requires a PrimaryAttribute on CreateEntity; build one here so we don't hit
+        //    the "Required field 'PrimaryAttribute' is missing for CreateEntity" error. We base the schema on the
+        //    logical name and either use the provided value (when prefixed correctly) or the conventional
+        //    <logicalName>name.
+        const forcedPrimaryName = `${normalizedLogicalName}name`;
+        const primaryAttributeLogicalName = primaryNameLogicalName && primaryNameLogicalName.startsWith(normalizedLogicalName)
+          ? String(primaryNameLogicalName).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')
+          : forcedPrimaryName;
+
+        const primaryAttribute = {
+          '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
+          LogicalName: primaryAttributeLogicalName,
+          SchemaName: toSchemaName(primaryAttributeLogicalName),
+          DisplayName: makeLabel(primaryNameDisplayName),
+          RequiredLevel: { Value: 'None' },
+          MaxLength: primaryNameMaxLength,
+          FormatName: { Value: 'Text' },
+        };
+
         const entityBody = {
           '@odata.type': 'Microsoft.Dynamics.CRM.EntityMetadata',
           LogicalName: normalizedLogicalName,
@@ -398,7 +411,8 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           OwnershipType: ownershipType,
           IsActivity: false,
           HasActivities: false,
-          HasNotes: true
+          HasNotes: true,
+          PrimaryAttribute: primaryAttribute,
         };
 
         if (DATAVERSE_DEBUG) {
