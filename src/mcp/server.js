@@ -373,19 +373,24 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
         if (!label) throw new Error('displayName is required');
         const pluralLabel = String(displayCollectionName || `${label}s`).trim();
 
+        const makeLabel = (text) => ({
+          '@odata.type': 'Microsoft.Dynamics.CRM.Label',
+          LocalizedLabels: [
+            {
+              '@odata.type': 'Microsoft.Dynamics.CRM.LocalizedLabel',
+              Label: text,
+              LanguageCode: 1033,
+            },
+          ],
+        });
+
         const body = {
           '@odata.type': 'Microsoft.Dynamics.CRM.EntityMetadata',
           LogicalName: normalizedLogicalName,
           SchemaName: schemaName,
-          DisplayName: {
-            LocalizedLabels: [{ Label: label, LanguageCode: 1033 }],
-          },
-          DisplayCollectionName: {
-            LocalizedLabels: [{ Label: pluralLabel, LanguageCode: 1033 }],
-          },
-          Description: {
-            LocalizedLabels: [{ Label: description || `${label} table`, LanguageCode: 1033 }],
-          },
+          DisplayName: makeLabel(label),
+          DisplayCollectionName: makeLabel(pluralLabel),
+          Description: makeLabel(description || `${label} table`),
           OwnershipType: ownershipType,
           IsActivity: false,
           HasActivities: false,
@@ -396,9 +401,9 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
               '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
               LogicalName: primaryAttributeLogicalName,
               SchemaName: toSchemaName(primaryAttributeLogicalName),
-              DisplayName: {
-                LocalizedLabels: [{ Label: primaryNameDisplayName, LanguageCode: 1033 }],
-              },
+              PrimaryNameAttribute: true,
+              DisplayName: makeLabel(primaryNameDisplayName),
+              Description: makeLabel(`Primary Name attribute for ${label}`),
               RequiredLevel: {
                 Value: 'ApplicationRequired',
               },
