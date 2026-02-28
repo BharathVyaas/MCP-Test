@@ -412,7 +412,12 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           IsActivity: false,
           HasActivities: false,
           HasNotes: true,
-          PrimaryAttribute: primaryAttribute,
+          // Dataverse expects new entity attributes in the Attributes collection. Some
+          // tenants reject a nested PrimaryAttribute object. Provide the primary
+          // attribute inside Attributes and set PrimaryNameAttribute to the logical
+          // name string so the CreateEntity contract is satisfied.
+          Attributes: [primaryAttribute],
+          PrimaryNameAttribute: primaryAttributeLogicalName,
         };
 
         if (DATAVERSE_DEBUG) {
