@@ -17,7 +17,7 @@ async function main() {
     console.error("Starting MCP Claude server...");
 
     const transport = new StdioServerTransport();
-    const server = buildMcpServer();
+    const server = buildMcpServer({ authMode: 'client_credentials' });
 
     await server.connect(transport);
 
