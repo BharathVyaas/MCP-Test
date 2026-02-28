@@ -12,6 +12,7 @@
     "express": "^4.19.2",
     "mcp-remote": "^0.1.38",
     "mongoose": "^8.9.0",
-    "zod": "^3.25.0"
+    "zod": "^3.25.0",
+    "zod-to-json-schema": "^3.25.1"
   }
 }

@@ -347,7 +347,7 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
         description: z.string().optional(),
         primaryNameMaxLength: z.number().int().min(10).max(4000).optional().default(200),
         publishAfterCreate: z.boolean().optional().default(true),
-        item: z.array(z.record(z.any())).optional().describe('JSON array of custom columns e.g. [{"name":"First Name","type":"String"}]')
+        item: z.string().optional().describe('JSON array of custom columns without prefixes, e.g. \'[{"name":"First Name","type":"String"}]\'')
       },
     },
     async ({
@@ -411,9 +411,20 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           body: entityBody,
         });
 
+        let parsedItem = [];
+        if (typeof item === 'string' && item.trim()) {
+          try {
+            parsedItem = JSON.parse(item);
+          } catch (e) {
+            console.warn('[dataverse_create_table] failed to parse item array:', e.message);
+          }
+        } else if (Array.isArray(item)) {
+          parsedItem = item;
+        }
+
         // 2) Sequentially create any custom fields requested in the 'item' array
-        if (Array.isArray(item) && item.length > 0) {
-          for (const col of item) {
+        if (Array.isArray(parsedItem) && parsedItem.length > 0) {
+          for (const col of parsedItem) {
             const colName = String(col.name || '').trim();
             const colType = String(col.type || '').trim().toLowerCase();
             if (!colName || !colType) continue;
