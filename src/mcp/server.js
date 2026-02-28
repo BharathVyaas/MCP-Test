@@ -399,17 +399,26 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           HasNotes: true,
         };
 
+        if (DATAVERSE_DEBUG) {
+          console.log('[dataverse_create_table] step 1 entity body:', JSON.stringify(entityBody));
+        }
+
         const createEntityRes = await callDataverse(token, {
           method: 'POST',
           path: 'EntityDefinitions',
           body: entityBody,
+          headers: { 'Prefer': 'return=representation' },
         });
 
+        const entityCreated = createEntityRes?.status === 201 || !!createEntityRes?.entityId;
+
         // 2) Create the primary attribute separately
+        // Derive SchemaName directly from entity schemaName to avoid double-Name suffix
+        const primaryAttrSchemaName = `${schemaName}Name`;
         const attrBody = {
           '@odata.type': 'Microsoft.Dynamics.CRM.StringAttributeMetadata',
           LogicalName: primaryAttributeLogicalName,
-          SchemaName: toSchemaName(primaryAttributeLogicalName),
+          SchemaName: primaryAttrSchemaName,
           DisplayName: makeLabel(primaryNameDisplayName),
           Description: makeLabel(`Primary Name attribute for ${label}`),
           RequiredLevel: {
@@ -419,6 +428,10 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           FormatName: { Value: 'Text' },
         };
 
+        if (DATAVERSE_DEBUG) {
+          console.log('[dataverse_create_table] step 2 attribute body:', JSON.stringify(attrBody));
+        }
+
         try {
           await callDataverse(token, {
             method: 'POST',
@@ -426,21 +439,27 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
             body: attrBody,
           });
         } catch (err) {
-          // Best effort cleanup if attribute fails
-          await callDataverse(token, { method: 'DELETE', path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')` }).catch(() => { });
+          if (entityCreated) {
+            await callDataverse(token, { method: 'DELETE', path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')` }).catch(() => { });
+          }
           throw new Error(`Failed to create primary attribute: ${err.message}`);
         }
 
         // 3) Bind the attribute to the entity as PrimaryNameAttribute
+        const bindBody = { PrimaryNameAttribute: primaryAttributeLogicalName };
+        if (DATAVERSE_DEBUG) {
+          console.log('[dataverse_create_table] step 3 bind body:', JSON.stringify(bindBody));
+        }
         try {
           await callDataverse(token, {
             method: 'PATCH',
             path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')`,
-            body: { PrimaryNameAttribute: primaryAttributeLogicalName }
+            body: bindBody,
           });
         } catch (err) {
-          // Best effort cleanup if bind fails
-          await callDataverse(token, { method: 'DELETE', path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')` }).catch(() => { });
+          if (entityCreated) {
+            await callDataverse(token, { method: 'DELETE', path: `EntityDefinitions(LogicalName='${normalizedLogicalName}')` }).catch(() => { });
+          }
           throw new Error(`Failed to bind primary attribute: ${err.message}`);
         }
 
