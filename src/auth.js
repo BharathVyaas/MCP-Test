@@ -54,3 +54,19 @@ export function requireAllowedOrigin(req, res, next) {
 
   return next();
 }
+
+export function requireGeminiApiKey(req, res, next) {
+  const expected = process.env.GEMINI_API_KEY;
+  if (!expected) {
+    return res.status(500).json({ error: 'Server misconfigured. GEMINI_API_KEY is not set.' });
+  }
+
+  const auth = (req.headers.authorization || '').toString();
+  const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : '';
+
+  if (token !== expected) {
+    return res.status(401).json({ error: 'Unauthorized (invalid or missing GEMINI_API_KEY)' });
+  }
+
+  return next();
+}

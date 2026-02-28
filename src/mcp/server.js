@@ -131,6 +131,34 @@ async function exchangeTokenOnBehalfOf(inboundAccessToken) {
   return payload.access_token;
 }
 
+async function getClientCredentialsToken() {
+  ensureDataverseConfig();
+
+  const params = new URLSearchParams({
+    client_id: MCP_SERVICE_APP_ID,
+    client_secret: MCP_SERVICE_APP_CLIENT_SECRET,
+    grant_type: 'client_credentials',
+    scope: DATAVERSE_URL ? `${DATAVERSE_URL}/.default` : '',
+  });
+
+  const response = await fetch(OBO_TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+    },
+    body: params.toString(),
+  });
+
+  const text = await response.text();
+  const payload = parseMaybeJson(text);
+  if (!response.ok || !payload?.access_token) {
+    throw new Error(`Dataverse client_credentials token exchange failed (${response.status}): ${toErrorText(response.status, payload)}`);
+  }
+
+  return payload.access_token;
+}
+
 async function callDataverse(accessToken, { method = 'GET', path, query, headers, body }) {
   ensureDataverseConfig();
 
@@ -179,10 +207,15 @@ async function callDataverse(accessToken, { method = 'GET', path, query, headers
   };
 }
 
-const runWithDataverseToken = async (getInboundAccessToken, fn) => {
+const runWithDataverseToken = async (getInboundAccessToken, authMode, fn) => {
   try {
-    const inboundAccessToken = await Promise.resolve(getInboundAccessToken?.());
-    const dataverseAccessToken = await exchangeTokenOnBehalfOf(inboundAccessToken);
+    let dataverseAccessToken;
+    if (authMode === 'client_credentials') {
+      dataverseAccessToken = await getClientCredentialsToken();
+    } else {
+      const inboundAccessToken = await Promise.resolve(getInboundAccessToken?.());
+      dataverseAccessToken = await exchangeTokenOnBehalfOf(inboundAccessToken);
+    }
     const output = await fn(dataverseAccessToken);
     return toJsonResponse(output);
   } catch (err) {
@@ -190,7 +223,7 @@ const runWithDataverseToken = async (getInboundAccessToken, fn) => {
   }
 };
 
-export function buildMcpServer({ getInboundAccessToken } = {}) {
+export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {}) {
   const server = new McpServer(
     { name: 'mcp-dataverse', version: '0.2.0' },
     { capabilities: { logging: {} } }
@@ -203,7 +236,7 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       description: 'Validate Dataverse connectivity and return user identifiers.',
       inputSchema: {},
     },
-    async () => runWithDataverseToken(getInboundAccessToken, async (token) => {
+    async () => runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
       const result = await callDataverse(token, { method: 'GET', path: 'WhoAmI()' });
       return result;
     })
@@ -221,7 +254,7 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       },
     },
     async ({ top = 100, customOnly = false, logicalNameContains }) =>
-      runWithDataverseToken(getInboundAccessToken, async (token) => {
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const result = await callDataverse(token, {
           method: 'GET',
           path: 'EntityDefinitions',
@@ -285,7 +318,7 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       },
     },
     async ({ table, select, filter, orderBy, top = 25, expand, count = false }) =>
-      runWithDataverseToken(getInboundAccessToken, async (token) => {
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const entitySet = normalizeTable(table);
         const query = {
           $top: top,
@@ -327,7 +360,7 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       primaryNameMaxLength = 200,
       publishAfterCreate = true,
     }) =>
-      runWithDataverseToken(getInboundAccessToken, async (token) => {
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const normalizedLogicalName = normalizeLogicalName(logicalName);
         const schemaName = toSchemaName(normalizedLogicalName);
         const primaryAttributeLogicalName =
@@ -418,7 +451,7 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       },
     },
     async ({ table, id, select, expand }) =>
-      runWithDataverseToken(getInboundAccessToken, async (token) => {
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const entitySet = normalizeTable(table);
         const rowId = normalizeRowId(id);
         const query = {
@@ -445,7 +478,7 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       },
     },
     async ({ table, data, returnRepresentation = true }) =>
-      runWithDataverseToken(getInboundAccessToken, async (token) => {
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const entitySet = normalizeTable(table);
         const headers = returnRepresentation ? { Prefer: 'return=representation' } : undefined;
         return callDataverse(token, {
@@ -470,7 +503,7 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       },
     },
     async ({ table, id, data, ifMatch = '*' }) =>
-      runWithDataverseToken(getInboundAccessToken, async (token) => {
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const entitySet = normalizeTable(table);
         const rowId = normalizeRowId(id);
         return callDataverse(token, {
@@ -494,7 +527,7 @@ export function buildMcpServer({ getInboundAccessToken } = {}) {
       },
     },
     async ({ table, id, ifMatch = '*' }) =>
-      runWithDataverseToken(getInboundAccessToken, async (token) => {
+      runWithDataverseToken(getInboundAccessToken, authMode, async (token) => {
         const entitySet = normalizeTable(table);
         const rowId = normalizeRowId(id);
         return callDataverse(token, {

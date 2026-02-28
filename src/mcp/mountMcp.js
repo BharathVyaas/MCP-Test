@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
-import { requireApiKey, requireAllowedOrigin } from '../auth.js';
+import { requireApiKey, requireAllowedOrigin, requireGeminiApiKey } from '../auth.js';
 import { buildMcpServer } from './server.js';
+
+const sseTransports = new Map();
 
 function getBearerToken(req) {
   const auth = (req.headers.authorization || '').toString();
@@ -93,6 +96,45 @@ export function mountMcp(app) {
     }
   });
 
+  app.get('/mcp/sse', requireGeminiApiKey, async (req, res) => {
+    try {
+      const transport = new SSEServerTransport('/mcp/messages', res);
+      const server = buildMcpServer({ authMode: 'client_credentials' });
+      await server.connect(transport);
+
+      sseTransports.set(transport.sessionId, transport);
+
+      req.on('close', () => {
+        sseTransports.delete(transport.sessionId);
+        server.close();
+      });
+
+    } catch (err) {
+      console.error('MCP SSE Init error:', err);
+      if (!res.headersSent) {
+        res.status(500).send('Internal Server Error init SSE');
+      }
+    }
+  });
+
+  app.post('/mcp/messages', requireGeminiApiKey, async (req, res) => {
+    try {
+      const sessionId = req.query.sessionId;
+      const transport = sseTransports.get(sessionId);
+
+      if (!transport) {
+        return res.status(404).json({ error: 'SSE session not found' });
+      }
+
+      await transport.handlePostMessage(req, res, req.body);
+    } catch (err) {
+      console.error('MCP messages error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal Server Error handling message' });
+      }
+    }
+  });
+
   app.get('/mcp', requireApiKey, requireAllowedOrigin, (_req, res) => {
     res.status(405).set('Allow', 'POST').send('Method Not Allowed');
   });
@@ -101,3 +143,4 @@ export function mountMcp(app) {
     res.status(405).set('Allow', 'POST').send('Method Not Allowed');
   });
 }
+
