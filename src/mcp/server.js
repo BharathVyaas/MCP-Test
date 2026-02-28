@@ -438,14 +438,44 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
             body: entityBody,
           });
         } catch (err) {
-          return {
-            isError: true,
-            content: [{ type: 'text', text: `Dataverse CreateEntity failed: ${err?.message || String(err)}` }],
-            structuredContent: {
-              error: err?.message || String(err),
-              requestBody: entityBody,
-            },
-          };
+          const errMsg = err?.message || String(err || '');
+          // If Dataverse complains PrimaryAttribute is missing, try a fallback
+          // payload that includes a nested PrimaryAttribute object (some
+          // tenants accept this shape). If the fallback also fails, return
+          // both attempts for debugging.
+          if (/PrimaryAttribute/.test(errMsg)) {
+            const altBody = Object.assign({}, entityBody, { PrimaryAttribute: primaryAttribute });
+            try {
+              const altRes = await callDataverse(token, {
+                method: 'POST',
+                path: 'EntityDefinitions',
+                body: altBody,
+              });
+              // success on fallback
+              createEntityRes = altRes;
+            } catch (altErr) {
+              return {
+                isError: true,
+                content: [{ type: 'text', text: `Dataverse CreateEntity failed (primary attempt and fallback): ${errMsg}; fallback: ${altErr?.message || String(altErr)}` }],
+                structuredContent: {
+                  error: errMsg,
+                  attempt: {
+                    primary: { requestBody: entityBody, error: errMsg },
+                    fallback: { requestBody: altBody, error: altErr?.message || String(altErr) },
+                  },
+                },
+              };
+            }
+          } else {
+            return {
+              isError: true,
+              content: [{ type: 'text', text: `Dataverse CreateEntity failed: ${errMsg}` }],
+              structuredContent: {
+                error: errMsg,
+                requestBody: entityBody,
+              },
+            };
+          }
         }
 
         let parsedItem = [];
