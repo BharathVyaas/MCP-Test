@@ -419,13 +419,11 @@ export function buildMcpServer({ getInboundAccessToken, authMode = 'obo' } = {})
           // attribute inside Attributes and set PrimaryNameAttribute to the logical
           // name string so the CreateEntity contract is satisfied.
           Attributes: [primaryAttribute],
-          // Provide both PrimaryNameAttribute and PrimaryAttribute/PrimaryIdAttribute
-          // as string values. Some Dataverse deployments expect these specific
-          // top-level string properties (rather than a nested PrimaryAttribute
-          // object) for CreateEntity requests.
+          // Set PrimaryNameAttribute (string) and include the primary attribute
+          // inside the Attributes collection. Do NOT send a nested
+          // `PrimaryAttribute` object or unsupported top-level `PrimaryAttribute`/
+          // `PrimaryIdAttribute` properties — Dataverse will reject them.
           PrimaryNameAttribute: primaryAttributeLogicalName,
-          PrimaryAttribute: primaryAttributeLogicalName,
-          PrimaryIdAttribute: primaryIdLogicalName,
         };
 
         if (DATAVERSE_DEBUG) {
