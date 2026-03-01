@@ -31,13 +31,19 @@ export function mountMcp(app) {
     try {
       if (useStatelessMode) {
         const inboundToken = getBearerToken(req);
+
+        // If the Bearer token matches the GEMINI_API_KEY, this is a bot client
+        // (e.g. HARPA.ai, Gemini CLI) — use client_credentials instead of OBO.
+        const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+        const isBotClient = geminiKey && inboundToken === geminiKey;
+
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
           enableJsonResponse: true,
         });
-        const server = buildMcpServer({
-          getInboundAccessToken: () => inboundToken,
-        });
+        const server = isBotClient
+          ? buildMcpServer({ authMode: 'client_credentials' })
+          : buildMcpServer({ getInboundAccessToken: () => inboundToken });
         await server.connect(transport);
         await transport.handleRequest(req, res, req.body);
         res.on('close', () => {
