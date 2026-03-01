@@ -37,10 +37,16 @@ export function mountMcp(app) {
       if (useStatelessMode) {
         const inboundToken = getBearerToken(req);
 
-        // If the Bearer token matches the GEMINI_API_KEY, this is a bot client
-        // (e.g. HARPA.ai, Gemini CLI) — use client_credentials instead of OBO.
+        // If the Bearer token matches our configured API keys, OR if it's completely missing
+        // the standard JWT dot-notation structure (meaning it's just a generic API key
+        // like from HARPA rather than a real Microsoft token from ChatGPT), we auto-fallback 
+        // to headless 'client_credentials' mode to prevent OBO token exchange crashes.
         const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
-        const isBotClient = geminiKey && inboundToken === geminiKey;
+        const mcpKey = (process.env.MCP_API_KEY || '').trim();
+        const isBotClient =
+          (geminiKey && inboundToken === geminiKey) ||
+          (mcpKey && inboundToken === mcpKey) ||
+          (inboundToken && !inboundToken.includes('.'));
 
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
