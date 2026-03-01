@@ -26,6 +26,11 @@ export function mountMcp(app) {
     // ChatGPT and some generic REST clients (like HARPA) don't send this correctly, causing a 406 Not Acceptable.
     if (!req.headers.accept || req.headers.accept.includes('*/*') || req.headers.accept === 'application/json') {
       req.headers.accept = 'application/json, text/event-stream';
+      if (req.rawHeaders) {
+        const idx = req.rawHeaders.findIndex(h => h.toLowerCase() === 'accept');
+        if (idx !== -1) req.rawHeaders[idx + 1] = 'application/json, text/event-stream';
+        else req.rawHeaders.push('Accept', 'application/json, text/event-stream');
+      }
     }
 
     try {
