@@ -22,10 +22,10 @@ export function mountMcp(app) {
 
   app.post('/mcp', requireApiKey, requireAllowedOrigin, async (req, res) => {
     // Compat: The MCP SDK v1.5 StreamableHTTPServerTransport is strictly expecting 
-    // application/json or text/event-stream in the Accept header. 
-    // ChatGPT and some generic REST clients send '*/*' which causes a 406 Not Acceptable.
-    if (!req.headers.accept || req.headers.accept.includes('*/*')) {
-      req.headers.accept = 'application/json';
+    // application/json AND text/event-stream in the Accept header. 
+    // ChatGPT and some generic REST clients (like HARPA) don't send this correctly, causing a 406 Not Acceptable.
+    if (!req.headers.accept || req.headers.accept.includes('*/*') || req.headers.accept === 'application/json') {
+      req.headers.accept = 'application/json, text/event-stream';
     }
 
     try {
